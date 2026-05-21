@@ -38,13 +38,23 @@ class Config:
 
     @classmethod
     def load(cls) -> Config:
-        """Read config from Anki; return defaults if not running inside Anki."""
+        """Read config from Anki; return defaults if not running inside Anki.
+
+        Relative paths in the config (e.g. `cache.dir: "user_files/cache"`)
+        are resolved against the addon's own folder — Anki's CWD at addon
+        load is its app bundle, which is read-only on macOS.
+        """
+        addon_dir: Path | None = None
         try:
             from aqt import mw
             raw = mw.addonManager.getConfig(__package__) or {}
+            addon_dir = Path(mw.addonManager.addonsFolder(__package__))
         except Exception:
             raw = {}
-        return cls.from_dict(raw)
+        cfg = cls.from_dict(raw)
+        if addon_dir is not None and not cfg.cache_dir.is_absolute():
+            cfg.cache_dir = addon_dir / cfg.cache_dir
+        return cfg
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Config:

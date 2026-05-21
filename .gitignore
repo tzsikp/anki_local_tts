@@ -31,3 +31,6 @@ coverage.xml
 # Anki addon runtime artifacts
 local_tts/user_files/
 local_tts/meta.json
+
+# Build output
+dist/
