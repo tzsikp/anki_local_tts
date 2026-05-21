@@ -8,6 +8,7 @@ Anki's `av_player`. One instance is created at addon load time (see
 
 from __future__ import annotations
 
+from ._log import configure as _configure_log, log
 from .cache import AudioCache
 from .config import Config
 from .player import LocalTTSPlayer
@@ -20,8 +21,13 @@ class LocalTTSAddon:
 
     def __init__(self) -> None:
         self.config = Config.load()
+        _configure_log(self.config.addon_dir)
+        log.info("addon init; addon_dir=%s cache_dir=%s presets=%d default=%r",
+                 self.config.addon_dir, self.config.cache_dir,
+                 len(self.config.presets), self.config.default_preset)
         self.providers = ProviderRegistry.default()
-        self.cache = AudioCache(self.config.cache_dir, self.config.cache_max_mb)
+        self.cache = AudioCache(self.config.cache_dir, self.config.cache_max_mb,
+                                ffmpeg_override=self.config.ffmpeg_path)
         self.router = Router(self.config)
         self.player: LocalTTSPlayer | None = None
 
@@ -32,7 +38,9 @@ class LocalTTSAddon:
         from aqt.utils import showWarning
 
         for msg in self.config.validation_errors():
+            log.warning("config validation: %s", msg)
             showWarning(f"Local TTS: {msg}", title="Local TTS")
 
         self.player = LocalTTSPlayer(mw.taskman, self)
         av_player.players.append(self.player)
+        log.info("registered TTSProcessPlayer with av_player")

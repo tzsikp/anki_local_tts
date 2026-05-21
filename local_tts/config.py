@@ -35,6 +35,8 @@ class Config:
     presets: list[Preset] = field(default_factory=list)
     cache_dir: Path = field(default_factory=lambda: Path("user_files/cache"))
     cache_max_mb: int = 200
+    ffmpeg_path: str | None = None
+    addon_dir: Path = field(default_factory=Path)
 
     @classmethod
     def load(cls) -> Config:
@@ -52,8 +54,10 @@ class Config:
         except Exception:
             raw = {}
         cfg = cls.from_dict(raw)
-        if addon_dir is not None and not cfg.cache_dir.is_absolute():
-            cfg.cache_dir = addon_dir / cfg.cache_dir
+        if addon_dir is not None:
+            cfg.addon_dir = addon_dir
+            if not cfg.cache_dir.is_absolute():
+                cfg.cache_dir = addon_dir / cfg.cache_dir
         return cfg
 
     @classmethod
@@ -73,6 +77,7 @@ class Config:
             presets=presets,
             cache_dir=Path(cache_raw.get("dir", "user_files/cache")),
             cache_max_mb=int(cache_raw.get("max_mb", 200)),
+            ffmpeg_path=raw.get("ffmpeg_path") or None,
         )
 
     def save(self) -> None:
@@ -90,6 +95,7 @@ class Config:
             },
             "presets": [p.to_dict() for p in self.presets],
             "cache": {"dir": str(self.cache_dir), "max_mb": self.cache_max_mb},
+            "ffmpeg_path": self.ffmpeg_path,
         }
 
     def preset_by_name(self, name: str) -> Preset | None:

@@ -14,11 +14,12 @@ than a crash mid-review.
 
 from __future__ import annotations
 
+from concurrent.futures import Future
 from typing import TYPE_CHECKING, List
 
 try:
     from anki.sound import AVTag, TTSTag
-    from aqt.sound import OnDoneCallback
+    from aqt.sound import OnDoneCallback, av_player
     from aqt.taskman import TaskManager
     from aqt.tts import TTSProcessPlayer, TTSVoice
 except ImportError:
@@ -27,7 +28,9 @@ except ImportError:
     AVTag = TTSTag = object  # type: ignore[assignment,misc]
     OnDoneCallback = object  # type: ignore[assignment,misc]
     TaskManager = object  # type: ignore[assignment,misc]
+    av_player = None  # type: ignore[assignment]
 
+from ._log import log
 from .providers.base import ProviderError
 from .text import cleanup, regex_rules
 
@@ -47,32 +50,65 @@ class LocalTTSPlayer(TTSProcessPlayer):
         return [TTSVoice(name=VOICE_NAME, lang=lang) for lang in SUPPORTED_LANGS]
 
     def _play(self, tag: AVTag) -> None:
+        self.audio_file_path = None
         assert isinstance(tag, TTSTag)
         text = tag.field_text
+        log.debug("_play tag.lang=%s text=%r", getattr(tag, "lang", None), text[:80])
         if not text or not text.strip():
+            log.debug("empty text, skipping")
             return
 
         preset = self._resolve_preset(tag)
         if preset is None:
+            log.warning("no preset resolved (lang=%s) — check routing/default_preset",
+                        getattr(tag, "lang", None))
             return
+        log.debug("resolved preset=%s provider=%s", preset.name, preset.provider)
 
         processed = regex_rules.apply(cleanup.clean(text, preset.cleanup), preset.regex_rules)
         if not processed.strip():
+            log.debug("text empty after cleanup, skipping")
             return
+        log.debug("processed text=%r", processed[:80])
 
         key = self._addon.cache.key(preset, processed)
         cached = self._addon.cache.get(key)
         if cached is None:
             provider = self._addon.providers.get(preset.provider)
             if provider is None:
+                log.error("unknown provider %r in preset %r", preset.provider, preset.name)
                 return
             try:
                 data = provider.synthesize(processed, preset)
-            except ProviderError:
+            except ProviderError as exc:
+                log.error("synth failed: %s", exc)
                 return
             cached = self._addon.cache.put(key, data)
+            log.info("cache miss → wrote %s (%d bytes)", cached.name, cached.stat().st_size)
+        else:
+            log.debug("cache hit %s", cached.name)
 
         self.audio_file_path = str(cached)
+
+    def _on_done(self, ret: Future, cb: OnDoneCallback) -> None:
+        """Called on the main thread after `_play` finishes.
+
+        Anki's default `TTSProcessPlayer._on_done` does not enqueue the
+        synthesized file with `av_player`, so nothing plays. We push the
+        file to the front of the queue, then call `cb()` to advance.
+        Mirrors AwesomeTTS's `ttsplayer.py:_on_done`.
+        """
+        try:
+            ret.result()
+        except Exception as exc:
+            log.error("_play raised: %s", exc)
+        if self.audio_file_path:
+            log.debug("av_player.insert_file %s", self.audio_file_path)
+            av_player.insert_file(self.audio_file_path)
+        cb()
+
+    def stop(self) -> None:
+        pass
 
     def _resolve_preset(self, tag: TTSTag):
         try:

@@ -15,22 +15,37 @@ from __future__ import annotations
 import hashlib
 import shutil
 import subprocess
-from functools import cache
 from pathlib import Path
 
+from ._log import log
 from .presets import Preset
 
 CACHE_EXTS = ("opus", "wav")
 
+# Anki on macOS runs with a sanitized PATH that excludes Homebrew, so
+# `shutil.which("ffmpeg")` fails even when ffmpeg is installed. Probe
+# the common install locations as a fallback.
+_FFMPEG_FALLBACKS = (
+    "/opt/homebrew/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/usr/bin/ffmpeg",
+)
 
-@cache
-def _ffmpeg_path() -> str | None:
-    return shutil.which("ffmpeg")  # pyright: ignore[reportDeprecated]
+
+def _resolve_ffmpeg(override: str | None) -> str | None:
+    if override:
+        return override if Path(override).is_file() else None
+    found = shutil.which("ffmpeg")  # pyright: ignore[reportDeprecated]
+    if found:
+        return found
+    for candidate in _FFMPEG_FALLBACKS:
+        if Path(candidate).is_file():
+            return candidate
+    return None
 
 
-def _encode_opus(wav_bytes: bytes) -> bytes | None:
+def _encode_opus(wav_bytes: bytes, ffmpeg: str | None) -> bytes | None:
     """WAV → Opus/Ogg via ffmpeg subprocess. Returns None on any failure."""
-    ffmpeg = _ffmpeg_path()
     if ffmpeg is None:
         return None
     try:
@@ -50,10 +65,13 @@ def _encode_opus(wav_bytes: bytes) -> bytes | None:
 class AudioCache:
     """Disk-backed audio cache with LRU eviction."""
 
-    def __init__(self, cache_dir: Path, max_mb: int) -> None:
+    def __init__(self, cache_dir: Path, max_mb: int, ffmpeg_override: str | None = None) -> None:
         self.cache_dir = Path(cache_dir)
         self.max_bytes = max_mb * 1024 * 1024
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.ffmpeg = _resolve_ffmpeg(ffmpeg_override)
+        log.info("cache ready: dir=%s max_mb=%d ffmpeg=%s",
+                 self.cache_dir, max_mb, self.ffmpeg or "<none — storing WAV>")
 
     @staticmethod
     def key(preset: Preset, processed_text: str) -> str:
@@ -75,7 +93,7 @@ class AudioCache:
 
     def put(self, key: str, wav_bytes: bytes) -> Path:
         """Write WAV bytes to the cache; transcodes to Opus when possible."""
-        opus = _encode_opus(wav_bytes)
+        opus = _encode_opus(wav_bytes, self.ffmpeg)
         if opus is not None:
             return self._write(key, "opus", opus)
         return self._write(key, "wav", wav_bytes)

@@ -54,11 +54,12 @@ def test_uses_opus_when_ffmpeg_available(cache: AudioCache):
     assert p.stat().st_size < len(_wav_bytes())
 
 
-def test_falls_back_to_wav_without_ffmpeg(monkeypatch, cache: AudioCache):
-    monkeypatch.setattr("local_tts.cache._encode_opus", lambda _b: None)
+def test_falls_back_to_wav_without_ffmpeg(tmp_path: Path):
+    c = AudioCache(tmp_path / "cache", max_mb=10, ffmpeg_override="/nonexistent/ffmpeg")
+    assert c.ffmpeg is None
     preset = Preset(name="p", provider="voicevox")
-    key = cache.key(preset, "テスト")
-    p = cache.put(key, _wav_bytes())
+    key = c.key(preset, "テスト")
+    p = c.put(key, _wav_bytes())
     assert p.suffix == ".wav"
 
 
