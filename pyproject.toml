@@ -1,0 +1,22 @@
+[project]
+name = "local-tts"
+version = "0.0.1"
+description = "Anki add-on for runtime TTS via local AI engines (VOICEVOX, Piper, ...)."
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv]
+package = false
