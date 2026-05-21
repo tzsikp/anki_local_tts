@@ -1,0 +1,35 @@
+{
+    "enabled": true,
+    "default_preset": "Japanese VOICEVOX Tsumugi",
+    "routing": {
+        "by_deck": {},
+        "by_notetype": {},
+        "by_language": {
+            "ja": "Japanese VOICEVOX Tsumugi"
+        }
+    },
+    "presets": [
+        {
+            "name": "Japanese VOICEVOX Tsumugi",
+            "provider": "voicevox",
+            "options": {
+                "endpoint": "http://localhost:50021",
+                "speaker_id": 8,
+                "speed": 0.95,
+                "pitch": 0.0,
+                "intonation": 1.1
+            },
+            "cleanup": {
+                "ruby_mode": "base",
+                "bracket_mode": "base",
+                "brackets": ["[]", "()"],
+                "collapse_cjk_spaces": true
+            },
+            "regex_rules": []
+        }
+    ],
+    "cache": {
+        "max_mb": 1024,
+        "dir": "user_files/cache"
+    }
+}

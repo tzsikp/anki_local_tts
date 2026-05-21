@@ -25,6 +25,9 @@ coverage.xml
 .DS_Store
 *.swp
 
+# Claude Code personal allowlist
+.claude/settings.local.json
+
 # Anki addon runtime artifacts
 local_tts/user_files/
 local_tts/meta.json
