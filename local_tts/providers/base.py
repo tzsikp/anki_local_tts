@@ -12,6 +12,7 @@ note-types, the cache, or the cleanup pipeline.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ..presets import Preset
@@ -22,10 +23,25 @@ class ProviderError(Exception):
     and skips playback rather than crashing the reviewer."""
 
 
+@dataclass
+class VoiceInfo:
+    """One selectable voice fetched live from a provider's server.
+
+    `label` is what the picker shows. `options` is the partial options
+    dict to merge into a new preset (e.g. `{"speaker_id": 8}`).
+    """
+
+    label: str
+    options: dict[str, Any] = field(default_factory=dict)
+    description: str | None = None
+
+
 class Provider(Protocol):
     """Contract every TTS adapter must satisfy."""
 
     name: str
+    display_name: str        # human-readable, e.g. "VOICEVOX"
+    display_language: str    # human-readable default language, e.g. "Japanese"; "" if multi-lang
 
     def options_schema(self) -> dict[str, Any]:
         """Describe the provider's preset options; drives the GUI editor."""
@@ -35,3 +51,7 @@ class Provider(Protocol):
 
     def health_check(self, preset: Preset) -> tuple[bool, str]:
         """Quick liveness check for the settings dialog's Test button."""
+
+    def voices(self, options: dict[str, Any]) -> list[VoiceInfo]:
+        """Query the live server for selectable voices. May raise ProviderError.
+        Providers without a discovery endpoint return an empty list."""

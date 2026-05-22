@@ -12,13 +12,15 @@ from __future__ import annotations
 from typing import Any
 
 from ..presets import Preset
-from .base import ProviderError
+from .base import ProviderError, VoiceInfo
 
 
 class VoicevoxProvider:
     """Reference local AI provider; runs against `localhost:50021` by default."""
 
     name = "voicevox"
+    display_name = "VOICEVOX"
+    display_language = "Japanese"
 
     def options_schema(self) -> dict[str, Any]:
         return {
@@ -31,6 +33,7 @@ class VoicevoxProvider:
 
     def synthesize(self, text: str, preset: Preset) -> bytes:
         import requests
+        import requests.exceptions as rex
 
         opts = preset.options
         endpoint = opts.get("endpoint", "http://localhost:50021").rstrip("/")
@@ -55,8 +58,16 @@ class VoicevoxProvider:
             )
             s.raise_for_status()
             return s.content
+        except rex.ConnectionError:
+            raise ProviderError(
+                f"VOICEVOX is not reachable at {endpoint}. "
+                f"Start the engine (e.g. `docker run -p 50021:50021 voicevox/voicevox_engine:cpu-latest`) "
+                f"or update the endpoint in the preset."
+            ) from None
+        except rex.Timeout:
+            raise ProviderError(f"VOICEVOX timed out at {endpoint}.") from None
         except Exception as exc:
-            raise ProviderError(f"VOICEVOX synth failed: {exc}") from exc
+            raise ProviderError(f"VOICEVOX error at {endpoint}: {exc}") from exc
 
     def health_check(self, preset: Preset) -> tuple[bool, str]:
         import requests
@@ -69,10 +80,31 @@ class VoicevoxProvider:
         except Exception as exc:
             return False, str(exc)
 
-    def speakers(self, endpoint: str) -> list[dict[str, Any]]:
-        """Fetch the engine's full speaker/style catalogue for the preset UI."""
+    def voices(self, options: dict[str, Any]) -> list[VoiceInfo]:
         import requests
+        import requests.exceptions as rex
 
-        r = requests.get(f"{endpoint.rstrip('/')}/speakers", timeout=5)
-        r.raise_for_status()
-        return r.json()
+        endpoint = (options.get("endpoint") or "http://localhost:50021").rstrip("/")
+        try:
+            r = requests.get(f"{endpoint}/speakers", timeout=3)
+            r.raise_for_status()
+            data = r.json()
+        except rex.ConnectionError:
+            raise ProviderError(
+                f"VOICEVOX is not reachable at {endpoint}. Start the engine and try again."
+            ) from None
+        except rex.Timeout:
+            raise ProviderError(f"VOICEVOX timed out at {endpoint}.") from None
+        except Exception as exc:
+            raise ProviderError(f"VOICEVOX /speakers failed at {endpoint}: {exc}") from exc
+
+        voices: list[VoiceInfo] = []
+        for speaker in data:
+            name = speaker.get("name", "?")
+            for style in speaker.get("styles", []):
+                style_name = style.get("name", "")
+                voices.append(VoiceInfo(
+                    label=f"{name} · {style_name}" if style_name else name,
+                    options={"speaker_id": int(style["id"])},
+                ))
+        return voices

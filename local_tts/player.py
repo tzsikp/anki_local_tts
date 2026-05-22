@@ -45,6 +45,23 @@ class LocalTTSPlayer(TTSProcessPlayer):
     def __init__(self, taskman: TaskManager, addon: LocalTTSAddon) -> None:
         super().__init__(taskman)
         self._addon = addon
+        self._notified_errors: set[str] = set()
+
+    def reset_notifications(self) -> None:
+        """Clear the throttle set; called after config reload so the user
+        sees the new error context if it still applies."""
+        self._notified_errors.clear()
+
+    def _notify_once(self, key: str, message: str) -> None:
+        if key in self._notified_errors:
+            return
+        self._notified_errors.add(key)
+        try:
+            from aqt import mw
+            from aqt.utils import tooltip
+            mw.taskman.run_on_main(lambda: tooltip(message, period=6000))
+        except Exception:
+            pass
 
     def get_available_voices(self) -> List[TTSVoice]:
         return [TTSVoice(name=VOICE_NAME, lang=lang) for lang in SUPPORTED_LANGS]
@@ -82,6 +99,7 @@ class LocalTTSPlayer(TTSProcessPlayer):
                 data = provider.synthesize(processed, preset)
             except ProviderError as exc:
                 log.error("synth failed: %s", exc)
+                self._notify_once(f"{preset.provider}:{type(exc).__name__}", f"Local TTS: {exc}")
                 return
             cached = self._addon.cache.put(key, data)
             log.info("cache miss → wrote %s (%d bytes)", cached.name, cached.stat().st_size)
