@@ -1,11 +1,11 @@
 {
     "enabled": true,
-    "default_preset": "Japanese VOICEVOX Tsumugi",
+    "default_preset": "Japanese VOICEVOX 春日部つむぎ · ノーマル",
     "routing": {
         "by_deck": {},
         "by_notetype": {},
         "by_language": {
-            "ja": "Japanese VOICEVOX Tsumugi"
+            "ja": "Japanese VOICEVOX 春日部つむぎ · ノーマル"
         }
     },
     "provider_settings": {
@@ -15,7 +15,7 @@
     },
     "presets": [
         {
-            "name": "Japanese VOICEVOX Tsumugi",
+            "name": "Japanese VOICEVOX 春日部つむぎ · ノーマル",
             "provider": "voicevox",
             "options": {
                 "speaker_id": 8,

@@ -34,3 +34,6 @@ local_tts/meta.json
 
 # Build output
 dist/
+
+# Vendor reference (AwesomeTTS source, not distributed)
+awesometts/

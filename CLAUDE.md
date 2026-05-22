@@ -8,7 +8,7 @@ This file is the working brief for Claude. It captures what we're building, the 
 
 An Anki add-on that synthesizes audio **at review time** (no permanent media files), driven by **reusable named presets** that point at **local AI TTS engines** — primarily for Japanese decks.
 
-Authoritative spec: `local_tts_for_anki_readme.md`. Read it once before writing code; treat it as the product requirements doc.
+User-facing spec: `README.md`. Read it once before writing code.
 
 ### Scope vs. AwesomeTTS
 AwesomeTTS (the source under `awesometts/`) is **a reference, not a base**. We are not forking it. We will:
@@ -120,7 +120,7 @@ Keep modules small and pure where possible. `text/cleanup.py` and `text/regex_ru
 
 ---
 
-## 5b. Config schema (sketch)
+## 5b. Config schema (current)
 
 ```jsonc
 {
@@ -131,22 +131,30 @@ Keep modules small and pure where possible. `text/cleanup.py` and `text/regex_ru
     "by_notetype": { "1707111111111": "Japanese Piper Female" },
     "by_language": { "ja": "Japanese VOICEVOX Tsumugi", "en": "English Piper" }
   },
+  "provider_settings": {
+    "voicevox": { "endpoint": "http://localhost:50021" }
+  },
   "presets": [
     {
       "name": "Japanese VOICEVOX Tsumugi",
       "provider": "voicevox",
-      "options": { "endpoint": "http://localhost:50021", "speaker_id": 8,
-                   "speed": 0.95, "pitch": 0.0, "intonation": 1.1 },
+      "options": { "speaker_id": 8, "speed": 0.95, "pitch": 0.0, "intonation": 1.1 },
       "cleanup": { "ruby_mode": "base", "bracket_mode": "base",
-                   "brackets": ["[]", "()"] },
+                   "brackets": ["[]", "()"], "collapse_cjk_spaces": true },
       "regex_rules": [ { "enabled": true, "pattern": "20日", "replacement": "はつか" } ]
     }
   ],
-  "cache": { "max_mb": 200, "dir": "user_files/cache" }
+  "cache": { "max_mb": 1024, "dir": "user_files/cache" },
+  "ffmpeg_path": null
 }
 ```
 
-Routing resolution lives in one function (`routing.resolve(card, lang) -> Preset`) and is the only code that knows about decks/note-types. Provider adapters never see those — they only get `(text, preset.options)`.
+Two configuration scopes, deliberately separated:
+
+- **`provider_settings[name]`** — shared across every preset of that provider (endpoint, future auth tokens). Not part of `preset.fingerprint`, so moving the server does **not** invalidate cached audio. Edited via Settings → Providers.
+- **`presets[*].options`** — per-preset voice config (speaker_id, speed, ...). Part of fingerprint.
+
+Routing resolution lives in one function (`routing.resolve(card, lang) -> Preset`) and is the only code that knows about decks/note-types. Provider adapters never see those — they receive `(text, preset, provider_settings)`.
 
 ---
 
@@ -154,10 +162,14 @@ Routing resolution lives in one function (`routing.resolve(card, lang) -> Preset
 
 ```python
 class Provider:
-    name: str               # "voicevox"
-    def options_schema(self) -> dict: ...     # for the preset editor UI
-    def synthesize(self, text: str, preset: Preset) -> bytes: ...   # WAV/MP3 bytes
-    def health_check(self) -> tuple[bool, str]: ...  # for "Test" button
+    name: str                       # "voicevox"
+    display_name: str               # "VOICEVOX"
+    display_language: str           # "Japanese" or "" for multi-lang
+    def provider_options_schema(self) -> dict: ...   # shared per-provider settings
+    def options_schema(self) -> dict: ...            # per-preset voice options
+    def synthesize(self, text: str, preset: Preset, provider_settings: dict) -> bytes: ...
+    def health_check(self, provider_settings: dict) -> tuple[bool, str]: ...
+    def voices(self, provider_settings: dict) -> list[VoiceInfo]: ...  # optional live discovery
 ```
 
 Adapters must be **stateless** apart from a `requests.Session` / config; instantiating one is cheap. Throw a typed `ProviderError` on failure; the player turns that into a user-visible message and a silent skip (no audio rather than a crash).
@@ -193,7 +205,7 @@ When we touch `local_tts_for_anki_readme.md`, address these gaps (in rough prior
 4. **Cache** section should specify: location (`user_files/cache/`), key derivation (canonical-JSON-hash of preset + processed text), eviction policy (LRU + max size MB), and that it never touches `collection.media`.
 5. **Failure behaviour** — what happens if the local engine is down? (Silent skip + log + one-time toast.) Spell this out.
 6. **Threading model** — one sentence saying synthesis is async and the reviewer never blocks.
-7. **License** — pick one (AwesomeTTS is GPLv3; we're not derivative but if we lift any regex verbatim we should stay GPL-compatible).
+7. ~~**License** — pick one (AwesomeTTS is GPLv3; we're not derivative but if we lift any regex verbatim we should stay GPL-compatible).~~ **Done: MIT.** See `LICENSE`. Acknowledges AwesomeTTS as a design reference; no code lifted.
 8. **MVP acceptance checklist** — turn the "MVP scope" bullets into testable criteria ("VOICEVOX preset plays a JA sentence within 2s on cache miss, <100ms on hit").
 9. **Drop the cloud providers** from "Planned future providers" — they contradict the project thesis. Replace with local-friendly options (Style-Bert-VITS2, Bark, XTTS).
 10. **Add a "Limitations"** section — e.g. AnkiMobile/AnkiWeb cannot run local engines, so this is desktop-only.
@@ -214,19 +226,19 @@ Don't rewrite the README unprompted — surface these as a diff when the user as
 
 ## 10. Status
 
-**Scaffold complete, pure modules tested, GUI still stubs.** Last touched 2026-05-21.
+**End-to-end working in Anki against VOICEVOX.** Last touched 2026-05-22.
 
-What exists:
-- `local_tts/` package scaffolded per §4 — `addon.py`, `config.py`, `presets.py`, `routing.py`, `cache.py`, `player.py`, `text/{cleanup,regex_rules}.py`, `providers/{base,voicevox}.py`, `gui/{settings,preset_editor}.py`.
-- `manifest.json`, `config.json` (default preset wired for VOICEVOX Tsumugi, 1024 MB cache cap), `.gitignore`, `pyproject.toml` + uv `.venv` with `pytest`/`bs4`/`requests`/`anki` (dev).
-- 19 unit tests passing under `uv run pytest` — covers cleanup pipeline (HTML, ruby base/reading, brackets, cloze, whitespace), preset fingerprint stability, routing precedence (deck > notetype > lang > default), and cache (put/get roundtrip, Opus encode when ffmpeg present, WAV fallback when not).
-- Docstrings on every module explaining role + rationale.
+What's done:
+- Full package per §4 — `addon.py`, `config.py`, `presets.py`, `routing.py`, `cache.py`, `player.py`, `_log.py`, `text/{cleanup,regex_rules}.py`, `providers/{base,voicevox}.py`, `gui/{settings,preset_editor}.py`.
+- **GUI complete (initial pass):** tabbed Settings dialog with General / Providers / Presets / Routing tabs; modal preset editor with dynamic provider-options form, cleanup flags, regex rules table + Validate; live voice picker (new-preset only) with built-in test-play; quick-switcher submenu (`Tools → Local TTS · Routes`) rebuilt on `aboutToShow`.
+- **Provider / preset settings split:** endpoint hoisted into `config.provider_settings`; not in `preset.fingerprint`, so moving servers doesn't invalidate cached audio. One-off migration in `scripts/migrate_provider_endpoint.py`.
+- **Opus cache** via ffmpeg subprocess; WAV fallback. macOS Homebrew probing because Anki's PATH excludes `/opt/homebrew/bin`.
+- **Playback fix:** `_on_done` explicitly calls `av_player.insert_file(audio_file_path)` then `cb()`. Anki's default `TTSProcessPlayer._on_done` does not auto-enqueue.
+- **Diagnostics:** rotating file logger at `user_files/log/local_tts.log`; throttled tooltips (once per session per error type) on provider failure.
+- **26 passing tests** under `uv run pytest`. Pure modules only; GUI / Anki-integrated code smoke-tested manually.
+- `scripts/dev_link.py` (symlink into `addons21/`), `scripts/build_addon.py` (produces `.ankiaddon`).
 
-**Opus caching is implemented.** `cache.put()` shells out to `ffmpeg -c:a libopus -b:a 32k -application voip`; falls back to raw WAV if ffmpeg is missing. `get()` probes `.opus` then `.wav` so callers don't care which format won. Provider contract unchanged: providers still return WAV bytes.
-
-What's still stub:
-- `gui/settings.py` — global dialog (enable toggle, default-preset dropdown, routing table editor).
-- `gui/preset_editor.py` — preset CRUD with provider-options form (built from `Provider.options_schema()`), cleanup flags, regex rules table + live preview, Test Synthesis button.
-- End-to-end smoke test inside Anki against a running `voicevox/voicevox_engine:cpu-latest` container.
-
-Next concrete step: build the settings dialog (`gui/settings.py`) wired to `Config` save/load, then the preset editor. After that, manual smoke-test inside Anki.
+Open follow-ups, in rough priority:
+- **More providers.** Piper, Style-Bert-VITS2, generic HTTP. Add a file under `providers/`, register it in `ProviderRegistry.default()`.
+- **Preset-editor "Test synthesis" button** outside the new-preset flow (the voice picker already has one).
+- **AnkiWeb release.** Not yet uploaded; current install is via `scripts/dev_link.py` or `scripts/build_addon.py`.
