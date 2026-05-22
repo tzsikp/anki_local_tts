@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --extra dev
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Build .ankiaddon
+        run: uv run python scripts/build_addon.py
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/local_tts.ankiaddon
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            Download `local_tts.ankiaddon` below and double-click it; Anki will
+            prompt you to install. Or use the dev symlink workflow described in
+            the [README](https://github.com/${{ github.repository }}#install-developer--current-state).
+
+            To publish to AnkiWeb, upload this file via
+            [ankiweb.net/shared/upload](https://ankiweb.net/shared/upload)
+            (or "Upload new version" on the existing listing).
