@@ -37,21 +37,33 @@ class VoiceInfo:
 
 
 class Provider(Protocol):
-    """Contract every TTS adapter must satisfy."""
+    """Contract every TTS adapter must satisfy.
+
+    Two configuration scopes:
+    - `provider_options_schema` / `provider_settings`: shared across all
+      presets of this provider (endpoint, auth token, default timeouts).
+      Edited once in Settings > Providers; not part of preset fingerprint
+      so moving the server doesn't invalidate the cache.
+    - `options_schema` / `preset.options`: per-preset, voice-level
+      (speaker id, speed, pitch). Part of preset fingerprint.
+    """
 
     name: str
     display_name: str        # human-readable, e.g. "VOICEVOX"
     display_language: str    # human-readable default language, e.g. "Japanese"; "" if multi-lang
 
-    def options_schema(self) -> dict[str, Any]:
-        """Describe the provider's preset options; drives the GUI editor."""
+    def provider_options_schema(self) -> dict[str, Any]:
+        """Schema for provider-level settings; `{}` if the provider has none."""
 
-    def synthesize(self, text: str, preset: Preset) -> bytes:
+    def options_schema(self) -> dict[str, Any]:
+        """Schema for per-preset (voice-level) options."""
+
+    def synthesize(self, text: str, preset: Preset, provider_settings: dict[str, Any]) -> bytes:
         """Return WAV bytes. Raise `ProviderError` on any failure."""
 
-    def health_check(self, preset: Preset) -> tuple[bool, str]:
+    def health_check(self, provider_settings: dict[str, Any]) -> tuple[bool, str]:
         """Quick liveness check for the settings dialog's Test button."""
 
-    def voices(self, options: dict[str, Any]) -> list[VoiceInfo]:
+    def voices(self, provider_settings: dict[str, Any]) -> list[VoiceInfo]:
         """Query the live server for selectable voices. May raise ProviderError.
         Providers without a discovery endpoint return an empty list."""

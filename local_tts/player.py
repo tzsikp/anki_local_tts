@@ -95,8 +95,9 @@ class LocalTTSPlayer(TTSProcessPlayer):
             if provider is None:
                 log.error("unknown provider %r in preset %r", preset.provider, preset.name)
                 return
+            provider_settings = self._addon.config.provider_settings.get(preset.provider, {})
             try:
-                data = provider.synthesize(processed, preset)
+                data = provider.synthesize(processed, preset, provider_settings)
             except ProviderError as exc:
                 log.error("synth failed: %s", exc)
                 self._notify_once(f"{preset.provider}:{type(exc).__name__}", f"Local TTS: {exc}")

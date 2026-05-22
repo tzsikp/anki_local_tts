@@ -22,21 +22,29 @@ class VoicevoxProvider:
     display_name = "VOICEVOX"
     display_language = "Japanese"
 
-    def options_schema(self) -> dict[str, Any]:
+    def provider_options_schema(self) -> dict[str, Any]:
         return {
             "endpoint": {"type": "string", "default": "http://localhost:50021"},
+        }
+
+    def options_schema(self) -> dict[str, Any]:
+        return {
             "speaker_id": {"type": "integer", "default": 1},
             "speed": {"type": "number", "default": 1.0},
             "pitch": {"type": "number", "default": 0.0},
             "intonation": {"type": "number", "default": 1.0},
         }
 
-    def synthesize(self, text: str, preset: Preset) -> bytes:
+    @staticmethod
+    def _endpoint(provider_settings: dict[str, Any]) -> str:
+        return (provider_settings.get("endpoint") or "http://localhost:50021").rstrip("/")
+
+    def synthesize(self, text: str, preset: Preset, provider_settings: dict[str, Any]) -> bytes:
         import requests
         import requests.exceptions as rex
 
         opts = preset.options
-        endpoint = opts.get("endpoint", "http://localhost:50021").rstrip("/")
+        endpoint = self._endpoint(provider_settings)
         speaker = int(opts.get("speaker_id", 1))
         try:
             q = requests.post(
@@ -69,10 +77,10 @@ class VoicevoxProvider:
         except Exception as exc:
             raise ProviderError(f"VOICEVOX error at {endpoint}: {exc}") from exc
 
-    def health_check(self, preset: Preset) -> tuple[bool, str]:
+    def health_check(self, provider_settings: dict[str, Any]) -> tuple[bool, str]:
         import requests
 
-        endpoint = preset.options.get("endpoint", "http://localhost:50021").rstrip("/")
+        endpoint = self._endpoint(provider_settings)
         try:
             r = requests.get(f"{endpoint}/version", timeout=3)
             r.raise_for_status()
@@ -80,11 +88,11 @@ class VoicevoxProvider:
         except Exception as exc:
             return False, str(exc)
 
-    def voices(self, options: dict[str, Any]) -> list[VoiceInfo]:
+    def voices(self, provider_settings: dict[str, Any]) -> list[VoiceInfo]:
         import requests
         import requests.exceptions as rex
 
-        endpoint = (options.get("endpoint") or "http://localhost:50021").rstrip("/")
+        endpoint = self._endpoint(provider_settings)
         try:
             r = requests.get(f"{endpoint}/speakers", timeout=3)
             r.raise_for_status()

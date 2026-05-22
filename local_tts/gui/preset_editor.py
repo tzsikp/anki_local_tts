@@ -57,6 +57,7 @@ class PresetEditorDialog(QDialog):
         parent: QWidget | None = None,
         *,
         is_new: bool = False,
+        provider_settings: dict | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Preset · {preset.name}")
@@ -64,6 +65,11 @@ class PresetEditorDialog(QDialog):
         self._addon = addon
         self._preset = preset
         self._is_new = is_new
+        # Draft provider settings from the surrounding Settings dialog,
+        # so the voice picker / test honour unsaved edits. Falls back to
+        # the live addon config if the dialog wasn't opened from Settings.
+        self._provider_settings = provider_settings if provider_settings is not None \
+            else addon.config.provider_settings
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 12)
@@ -119,8 +125,8 @@ class PresetEditorDialog(QDialog):
         provider = self._addon.providers.get(self._provider.currentText())
         if provider is None:
             return
-        options = self._collect_provider_options()
-        dlg = VoicePickerDialog(self._addon, provider, options, self)
+        provider_settings = self._provider_settings.get(provider.name, {})
+        dlg = VoicePickerDialog(self._addon, provider, provider_settings, self)
         if dlg.exec() != QDialog.DialogCode.Accepted or dlg.selected is None:
             return
         voice = dlg.selected
@@ -373,13 +379,13 @@ class VoicePickerDialog(QDialog):
     Has a test box: pick a voice, edit the sample text, hit Test to hear it.
     """
 
-    def __init__(self, addon, provider, options: dict, parent: QWidget | None = None) -> None:
+    def __init__(self, addon, provider, provider_settings: dict, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Voices · {provider.name}")
         self.resize(480, 600)
         self._addon = addon
         self._provider = provider
-        self._options = dict(options)
+        self._provider_settings = dict(provider_settings)
         self.selected = None  # type: ignore[assignment]
 
         layout = QVBoxLayout(self)
@@ -439,7 +445,7 @@ class VoicePickerDialog(QDialog):
         self._status.setStyleSheet("color: gray;")
         QApplication_processEvents()
         try:
-            voices = self._provider.voices(self._options)
+            voices = self._provider.voices(self._provider_settings)
         except ProviderError as exc:
             self._status.setText(str(exc))
             self._status.setStyleSheet("color: #c62828;")
@@ -480,16 +486,15 @@ class VoicePickerDialog(QDialog):
             self._status.setStyleSheet("color: gray;")
             return
 
-        merged_options = {**self._options, **voice.options}
         temp_preset = Preset(name=f"test:{voice.label}", provider=self._provider.name,
-                             options=merged_options)
+                             options=dict(voice.options))
 
         self._status.setText(f"Synthesizing with {voice.label}…")
         self._status.setStyleSheet("color: gray;")
         QApplication_processEvents()
 
         try:
-            wav = self._provider.synthesize(text, temp_preset)
+            wav = self._provider.synthesize(text, temp_preset, self._provider_settings)
         except ProviderError as exc:
             self._status.setText(str(exc))
             self._status.setStyleSheet("color: #c62828;")

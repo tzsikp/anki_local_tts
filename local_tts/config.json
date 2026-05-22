@@ -8,12 +8,16 @@
             "ja": "Japanese VOICEVOX Tsumugi"
         }
     },
+    "provider_settings": {
+        "voicevox": {
+            "endpoint": "http://localhost:50021"
+        }
+    },
     "presets": [
         {
             "name": "Japanese VOICEVOX Tsumugi",
             "provider": "voicevox",
             "options": {
-                "endpoint": "http://localhost:50021",
                 "speaker_id": 8,
                 "speed": 0.95,
                 "pitch": 0.0,

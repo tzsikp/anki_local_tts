@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import copy
 import shutil
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from aqt.qt import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -59,6 +60,7 @@ class SettingsDialog(QDialog):
 
         tabs = QTabWidget(self)
         tabs.addTab(self._build_general_tab(), "General")
+        tabs.addTab(self._build_providers_tab(), "Providers")
         tabs.addTab(self._build_presets_tab(), "Presets")
         tabs.addTab(self._build_routing_tab(), "Routing")
 
@@ -143,6 +145,56 @@ class SettingsDialog(QDialog):
             elif entry.is_dir():
                 shutil.rmtree(entry, ignore_errors=True)
         QMessageBox.information(self, "Local TTS", "Cache cleared.")
+
+    # ---------------- Providers ----------------
+
+    def _build_providers_tab(self) -> QWidget:
+        tab = QWidget()
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(14)
+
+        outer.addWidget(_section_label(
+            "Provider-level settings — shared across every preset that uses this provider. "
+            "Change once when you move the server; presets don't need editing."
+        ))
+
+        self._provider_widgets: dict[str, dict[str, QWidget]] = {}
+        any_provider = False
+        for name in self._addon.providers.names():
+            provider = self._addon.providers.get(name)
+            schema = provider.provider_options_schema() if hasattr(provider, "provider_options_schema") else {}
+            if not schema:
+                continue
+            any_provider = True
+            box = QGroupBox(getattr(provider, "display_name", name))
+            form = QFormLayout(box)
+            form.setHorizontalSpacing(16)
+            form.setVerticalSpacing(8)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+            current_settings = self._cfg.provider_settings.get(name, {})
+            widgets: dict[str, QWidget] = {}
+            for key, spec in schema.items():
+                widget = _make_schema_widget(spec, current_settings.get(key, spec.get("default")))
+                widgets[key] = widget
+                form.addRow(key, widget)
+            self._provider_widgets[name] = widgets
+            outer.addWidget(box)
+
+        if not any_provider:
+            outer.addWidget(QLabel("Registered providers expose no provider-level settings."))
+        outer.addStretch(1)
+        return tab
+
+    def _collect_provider_settings(self) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for name, widgets in self._provider_widgets.items():
+            slot: dict = {}
+            for key, widget in widgets.items():
+                slot[key] = _read_schema_widget(widget)
+            out[name] = slot
+        return out
 
     # ---------------- Presets ----------------
 
@@ -234,7 +286,12 @@ class SettingsDialog(QDialog):
                     break
 
     def _open_editor(self, preset: Preset, *, is_new: bool = False) -> bool:
-        dlg = PresetEditorDialog(self._addon, preset, self, is_new=is_new)
+        # Snapshot the draft provider settings from the Providers tab so
+        # the editor's voice picker / test honour unsaved edits.
+        drafted = self._collect_provider_settings() if self._provider_widgets \
+            else dict(self._cfg.provider_settings)
+        dlg = PresetEditorDialog(self._addon, preset, self, is_new=is_new,
+                                 provider_settings=drafted)
         return dlg.exec() == QDialog.DialogCode.Accepted
 
     def _unique_name(self, base: str) -> str:
@@ -314,6 +371,7 @@ class SettingsDialog(QDialog):
         self._cfg.default_preset = self._default_preset.currentData() or ""
         self._cfg.ffmpeg_path = self._ffmpeg.text().strip() or None
         self._cfg.cache_max_mb = self._cache_max.value()
+        self._cfg.provider_settings = self._collect_provider_settings()
         self._cfg.routing.by_deck = self._routing_deck.to_dict()
         self._cfg.routing.by_notetype = self._routing_notetype.to_dict()
         self._cfg.routing.by_language = self._routing_lang.to_dict()
@@ -330,7 +388,43 @@ class SettingsDialog(QDialog):
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet("color: gray;")
+    lbl.setWordWrap(True)
     return lbl
+
+
+def _make_schema_widget(spec: dict, value) -> QWidget:
+    t = spec.get("type", "string")
+    if t == "integer":
+        w = QSpinBox()
+        w.setRange(int(spec.get("min", -2**31)), int(spec.get("max", 2**31 - 1)))
+        w.setValue(int(value if value is not None else spec.get("default", 0)))
+        return w
+    if t == "number":
+        w = QDoubleSpinBox()
+        w.setDecimals(2)
+        w.setSingleStep(0.05)
+        w.setRange(float(spec.get("min", -1e6)), float(spec.get("max", 1e6)))
+        w.setValue(float(value if value is not None else spec.get("default", 0.0)))
+        return w
+    if t == "boolean":
+        w = QCheckBox()
+        w.setChecked(bool(value if value is not None else spec.get("default", False)))
+        return w
+    le = QLineEdit(str(value if value is not None else spec.get("default", "")))
+    le.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    return le
+
+
+def _read_schema_widget(widget: QWidget):
+    if isinstance(widget, QSpinBox):
+        return widget.value()
+    if isinstance(widget, QDoubleSpinBox):
+        return widget.value()
+    if isinstance(widget, QCheckBox):
+        return widget.isChecked()
+    if isinstance(widget, QLineEdit):
+        return widget.text()
+    return None
 
 
 _COMMON_LANGS = [

@@ -33,6 +33,7 @@ class Config:
     default_preset: str = ""
     routing: RoutingConfig = field(default_factory=RoutingConfig)
     presets: list[Preset] = field(default_factory=list)
+    provider_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
     cache_dir: Path = field(default_factory=lambda: Path("user_files/cache"))
     cache_max_mb: int = 200
     ffmpeg_path: str | None = None
@@ -69,12 +70,16 @@ class Config:
             by_language=dict(routing_raw.get("by_language", {})),
         )
         presets = [Preset.from_dict(p) for p in raw.get("presets", [])]
+        provider_settings: dict[str, dict[str, Any]] = {
+            k: dict(v) for k, v in (raw.get("provider_settings") or {}).items()
+        }
         cache_raw = raw.get("cache", {})
         return cls(
             enabled=raw.get("enabled", True),
             default_preset=raw.get("default_preset", ""),
             routing=routing,
             presets=presets,
+            provider_settings=provider_settings,
             cache_dir=Path(cache_raw.get("dir", "user_files/cache")),
             cache_max_mb=int(cache_raw.get("max_mb", 200)),
             ffmpeg_path=raw.get("ffmpeg_path") or None,
@@ -94,6 +99,7 @@ class Config:
                 "by_language": self.routing.by_language,
             },
             "presets": [p.to_dict() for p in self.presets],
+            "provider_settings": {k: dict(v) for k, v in self.provider_settings.items()},
             "cache": {"dir": str(self.cache_dir), "max_mb": self.cache_max_mb},
             "ffmpeg_path": self.ffmpeg_path,
         }
