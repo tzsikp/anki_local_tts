@@ -1,4 +1,5 @@
 {
     "package": "local_tts",
-    "name": "Local TTS"
+    "name": "Local TTS",
+    "human_version": "0.0.1"
 }

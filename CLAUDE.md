@@ -224,6 +224,32 @@ Don't rewrite the README unprompted — surface these as a diff when the user as
 
 ---
 
+## 9b. Release & distribution
+
+GitHub remote: `tzsikp/anki_local_tts` (over SSH alias `github.tzsikp`).
+
+### CI
+
+- `.github/workflows/ci.yml` — runs `uv run pytest -q` on every push to `main` and on PRs.
+- `.github/workflows/release.yml` — fires on tags matching `v*`. Runs the test suite, then `scripts/build_addon.py`, then attaches `dist/local_tts.ankiaddon` to an auto-generated GitHub Release.
+
+### Cutting a release
+
+1. Bump `human_version` in `local_tts/manifest.json`.
+2. Update `ANKIWEB.md` if the listing copy needs to change (e.g. "Current state" section, new requirements).
+3. Commit, push.
+4. `git tag -a vX.Y.Z -m "..."` and `git push origin vX.Y.Z`.
+5. Wait for the Release workflow to attach the `.ankiaddon` to the release page.
+6. **AnkiWeb is manual.** No API. Download the artifact from the GitHub release, log in to ankiweb.net, go to "Upload new version" on the existing listing (or `/shared/upload` for first publish), paste the contents of `ANKIWEB.md`'s description block, attach the file, submit. AnkiWeb assigns an immutable numeric ID on first upload; future uploads update the same listing.
+
+### Versioning convention
+
+- `human_version` in `manifest.json` is the source of truth users see in Tools → Add-ons.
+- `ANKIWEB.md` does not embed the version inside its body — it's just the current listing copy. Version history lives in git.
+- The `v*` git tag is what triggers CI. Always tag *after* committing the manifest bump.
+
+---
+
 ## 10. Status
 
 **End-to-end working in Anki against VOICEVOX.** Last touched 2026-05-22.
