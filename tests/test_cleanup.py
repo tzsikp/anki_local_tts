@@ -77,6 +77,66 @@ def test_validate_rules_returns_only_broken():
     assert errors[0][0].pattern == "(broken"
 
 
+def _pipeline(text: str, rules, **cleanup_kw) -> str:
+    """Mirrors `player._play`: cleanup first, then user regex rules."""
+    from local_tts.text import regex_rules
+    return regex_rules.apply(cleanup.clean(text, _opts(**cleanup_kw)), rules)
+
+
+def test_regex_runs_after_cleanup_on_html_input():
+    from local_tts.presets import RegexRule
+    rules = [RegexRule(pattern="背負ってくる", replacement="しょってくる")]
+    assert _pipeline("<div>背負ってくる</div>", rules) == "しょってくる"
+
+
+def test_regex_sees_bracket_stripped_text():
+    from local_tts.presets import RegexRule
+    rules = [RegexRule(pattern="背負ってくる", replacement="しょってくる")]
+    assert _pipeline("背負[しょ]ってくる", rules, bracket_mode="base") == "しょってくる"
+
+
+def test_regex_disabled_rule_is_skipped():
+    from local_tts.presets import RegexRule
+    rules = [RegexRule(pattern="背負ってくる", replacement="しょってくる", enabled=False)]
+    assert _pipeline("背負ってくる", rules) == "背負ってくる"
+
+
+def test_regex_rules_apply_in_order():
+    from local_tts.presets import RegexRule
+    rules = [
+        RegexRule(pattern="A", replacement="B"),
+        RegexRule(pattern="B", replacement="C"),
+    ]
+    assert _pipeline("A", rules) == "C"
+
+
+def test_regex_does_not_run_on_ruby_reading_when_mode_base():
+    from local_tts.presets import RegexRule
+    rules = [RegexRule(pattern="ほん", replacement="X")]
+    assert _pipeline("<ruby>本<rt>ほん</rt></ruby>", rules, ruby_mode="base") == "本"
+
+
+def test_regex_runs_against_ruby_reading_when_mode_reading():
+    from local_tts.presets import RegexRule
+    rules = [RegexRule(pattern="ほん", replacement="X")]
+    assert _pipeline("<ruby>本<rt>ほん</rt></ruby>", rules, ruby_mode="reading") == "X"
+
+
+def test_regex_runs_after_cloze_strip():
+    from local_tts.presets import RegexRule
+    rules = [RegexRule(pattern="面倒臭い", replacement="めんどくさい")]
+    assert _pipeline("{{c1::面倒臭い}}", rules) == "めんどくさい"
+
+
+def test_broken_pattern_does_not_crash_pipeline():
+    from local_tts.presets import RegexRule
+    rules = [
+        RegexRule(pattern="(broken", replacement=""),
+        RegexRule(pattern="ok", replacement="OK"),
+    ]
+    assert _pipeline("ok", rules) == "OK"
+
+
 def test_config_surfaces_validation_errors():
     from local_tts.config import Config
 

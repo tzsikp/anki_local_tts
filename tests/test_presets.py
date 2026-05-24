@@ -51,3 +51,20 @@ def test_override_distinguishes_none_from_empty_list():
     empty_override = Preset.from_dict({"name": "p", "provider": "voicevox", "regex_rules": []})
     assert no_override.regex_rules is None
     assert empty_override.regex_rules == []
+
+
+def test_player_treats_empty_regex_override_as_inherit():
+    """Mirrors `player._play`: empty list and None both fall back to global.
+
+    Older versions saved `regex_rules: []` on every preset regardless of
+    intent; legacy data must not silently suppress every global rule.
+    """
+    global_rules = [RegexRule(pattern="A", replacement="B")]
+    own_rules = [RegexRule(pattern="X", replacement="Y")]
+
+    def resolve(preset_rules):
+        return preset_rules if preset_rules else global_rules
+
+    assert resolve(None) is global_rules
+    assert resolve([]) is global_rules
+    assert resolve(own_rules) is own_rules
