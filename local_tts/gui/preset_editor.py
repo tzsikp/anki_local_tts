@@ -1,9 +1,9 @@
 """Preset editor — one preset at a time.
 
-Form sections: name + provider, dynamic provider-options form (built from
-`Provider.options_schema()`), cleanup flags, and the regex rules table.
-The regex section gets the lion's share of vertical space and has its
-own Validate button that surfaces re.compile errors inline.
+A preset is a voice configuration: name, provider, and the dynamic
+provider-options form (built from `Provider.options_schema()`). It may
+optionally override the global cleanup and regex rules; both sections
+are gated by an "override" checkbox and are off by default.
 """
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from aqt.qt import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -92,7 +91,7 @@ class PresetEditorDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    # ---- top: name + provider + provider options + cleanup ----
+    # ---- name + provider + provider options ----
 
     def _build_header(self) -> QWidget:
         wrap = QWidget()
@@ -159,9 +158,56 @@ class PresetEditorDialog(QDialog):
         self._option_widgets: dict[str, QWidget] = {}
         self._rebuild_provider_options(self._provider.currentText())
         layout.addWidget(self._options_box)
-
         layout.addWidget(self._build_cleanup_box())
         return wrap
+
+    def _build_cleanup_box(self) -> QWidget:
+        box = QGroupBox("Cleanup")
+        outer = QVBoxLayout(box)
+        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setSpacing(6)
+
+        self._cleanup_override = QCheckBox("Override global cleanup for this preset")
+        self._cleanup_override.toggled.connect(self._on_cleanup_override_toggled)
+        outer.addWidget(self._cleanup_override)
+
+        form_wrap = QWidget()
+        form = QFormLayout(form_wrap)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(6)
+
+        effective = self._preset.cleanup or self._addon.config.cleanup
+
+        self._ruby_mode = QComboBox()
+        for v, label in _RUBY_MODES:
+            self._ruby_mode.addItem(label, v)
+        self._ruby_mode.setCurrentIndex(max(0, self._ruby_mode.findData(effective.ruby_mode)))
+        form.addRow("Ruby tags", self._ruby_mode)
+
+        self._bracket_mode = QComboBox()
+        for v, label in _BRACKET_MODES:
+            self._bracket_mode.addItem(label, v)
+        self._bracket_mode.setCurrentIndex(max(0, self._bracket_mode.findData(effective.bracket_mode)))
+        form.addRow("Bracket readings", self._bracket_mode)
+
+        self._brackets = QLineEdit(", ".join(effective.brackets))
+        self._brackets.setPlaceholderText("[], (), {}")
+        form.addRow("Bracket pairs", self._brackets)
+
+        self._collapse_cjk = QCheckBox("Collapse spaces between Japanese characters")
+        self._collapse_cjk.setChecked(effective.collapse_cjk_spaces)
+        form.addRow("", self._collapse_cjk)
+
+        outer.addWidget(form_wrap)
+        self._cleanup_form_wrap = form_wrap
+
+        self._cleanup_override.setChecked(self._preset.cleanup is not None)
+        self._on_cleanup_override_toggled(self._cleanup_override.isChecked())
+        return box
+
+    def _on_cleanup_override_toggled(self, on: bool) -> None:
+        self._cleanup_form_wrap.setEnabled(on)
 
     def _rebuild_provider_options(self, provider_name: str) -> None:
         while self._options_form.rowCount():
@@ -201,44 +247,19 @@ class PresetEditorDialog(QDialog):
         le = QLineEdit(str(value if value is not None else spec.get("default", "")))
         return le
 
-    def _build_cleanup_box(self) -> QWidget:
-        box = QGroupBox("Cleanup")
-        form = QFormLayout(box)
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(6)
-
-        self._ruby_mode = QComboBox()
-        for v, label in _RUBY_MODES:
-            self._ruby_mode.addItem(label, v)
-        self._ruby_mode.setCurrentIndex(
-            max(0, self._ruby_mode.findData(self._preset.cleanup.ruby_mode))
-        )
-        form.addRow("Ruby tags", self._ruby_mode)
-
-        self._bracket_mode = QComboBox()
-        for v, label in _BRACKET_MODES:
-            self._bracket_mode.addItem(label, v)
-        self._bracket_mode.setCurrentIndex(
-            max(0, self._bracket_mode.findData(self._preset.cleanup.bracket_mode))
-        )
-        form.addRow("Bracket readings", self._bracket_mode)
-
-        self._brackets = QLineEdit(", ".join(self._preset.cleanup.brackets))
-        self._brackets.setPlaceholderText("[], (), {}")
-        form.addRow("Bracket pairs", self._brackets)
-
-        self._collapse_cjk = QCheckBox("Collapse spaces between Japanese characters")
-        self._collapse_cjk.setChecked(self._preset.cleanup.collapse_cjk_spaces)
-        form.addRow("", self._collapse_cjk)
-        return box
-
     # ---- regex rules ----
 
     def _build_regex_group(self) -> QWidget:
-        box = QGroupBox("Regex rules — applied in order after cleanup")
+        box = QGroupBox("Regex rules")
         layout = QVBoxLayout(box)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
+
+        self._regex_override = QCheckBox(
+            "Override global regex rules for this preset (replaces the global list)"
+        )
+        self._regex_override.toggled.connect(self._on_regex_override_toggled)
+        layout.addWidget(self._regex_override)
 
         self._rules_table = QTableWidget(0, 3)
         self._rules_table.setHorizontalHeaderLabels(["On", "Pattern", "Replacement"])
@@ -249,30 +270,41 @@ class PresetEditorDialog(QDialog):
         self._rules_table.verticalHeader().setVisible(False)
         self._rules_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
-        for rule in self._preset.regex_rules:
+        seed = self._preset.regex_rules if self._preset.regex_rules is not None \
+            else self._addon.config.regex_rules
+        for rule in seed:
             self._append_rule_row(rule)
 
         self._status = QLabel("")
         self._status.setStyleSheet("color: gray;")
         self._status.setWordWrap(True)
 
+        self._regex_add = QPushButton("Add")
+        self._regex_add.clicked.connect(lambda: self._append_rule_row(RegexRule(pattern="", replacement="")))
+        self._regex_del = QPushButton("Remove")
+        self._regex_del.clicked.connect(self._remove_selected_rules)
+        self._regex_validate = QPushButton("Validate")
+        self._regex_validate.clicked.connect(self._validate_rules)
+
         btns = QHBoxLayout()
-        add_btn = QPushButton("Add")
-        add_btn.clicked.connect(lambda: self._append_rule_row(RegexRule(pattern="", replacement="")))
-        del_btn = QPushButton("Remove")
-        del_btn.clicked.connect(self._remove_selected_rules)
-        validate_btn = QPushButton("Validate")
-        validate_btn.clicked.connect(self._validate_rules)
-        btns.addWidget(add_btn)
-        btns.addWidget(del_btn)
+        btns.addWidget(self._regex_add)
+        btns.addWidget(self._regex_del)
         btns.addStretch(1)
-        btns.addWidget(validate_btn)
+        btns.addWidget(self._regex_validate)
 
         layout.addWidget(self._rules_table, 1)
         layout.addLayout(btns)
-        layout.addWidget(_separator())
         layout.addWidget(self._status)
+
+        self._regex_override.setChecked(self._preset.regex_rules is not None)
+        self._on_regex_override_toggled(self._regex_override.isChecked())
         return box
+
+    def _on_regex_override_toggled(self, on: bool) -> None:
+        self._rules_table.setEnabled(on)
+        self._regex_add.setEnabled(on)
+        self._regex_del.setEnabled(on)
+        self._regex_validate.setEnabled(on)
 
     def _append_rule_row(self, rule: RegexRule) -> None:
         row = self._rules_table.rowCount()
@@ -327,8 +359,6 @@ class PresetEditorDialog(QDialog):
         self._status.setText("\n".join(lines))
         self._status.setStyleSheet("color: #c62828;")
 
-    # ---- save ----
-
     def _collect_provider_options(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for key, widget in self._option_widgets.items():
@@ -347,25 +377,24 @@ class PresetEditorDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Local TTS", "Preset name is required.")
             return
-        brackets = [b.strip() for b in self._brackets.text().split(",") if b.strip()]
         self._preset.name = name
         self._preset.provider = self._provider.currentText()
         self._preset.options = self._collect_provider_options()
-        self._preset.cleanup = CleanupOptions(
-            ruby_mode=self._ruby_mode.currentData(),
-            bracket_mode=self._bracket_mode.currentData(),
-            brackets=brackets or ["[]", "()"],
-            collapse_cjk_spaces=self._collapse_cjk.isChecked(),
-        )
-        self._preset.regex_rules = self._collect_rules()
+        if self._cleanup_override.isChecked():
+            brackets = [b.strip() for b in self._brackets.text().split(",") if b.strip()]
+            self._preset.cleanup = CleanupOptions(
+                ruby_mode=self._ruby_mode.currentData(),
+                bracket_mode=self._bracket_mode.currentData(),
+                brackets=brackets or ["[]", "()"],
+                collapse_cjk_spaces=self._collapse_cjk.isChecked(),
+            )
+        else:
+            self._preset.cleanup = None
+        if self._regex_override.isChecked():
+            self._preset.regex_rules = self._collect_rules()
+        else:
+            self._preset.regex_rules = None
         self.accept()
-
-
-def _separator() -> QFrame:
-    line = QFrame()
-    line.setFrameShape(QFrame.Shape.HLine)
-    line.setFrameShadow(QFrame.Shadow.Sunken)
-    return line
 
 
 DEFAULT_TEST_TEXT = "こんにちは、今日からよろしくお願いします。"

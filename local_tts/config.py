@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .presets import Preset
+from .presets import CleanupOptions, Preset, RegexRule
 
 
 @dataclass
@@ -33,6 +33,8 @@ class Config:
     default_preset: str = ""
     routing: RoutingConfig = field(default_factory=RoutingConfig)
     presets: list[Preset] = field(default_factory=list)
+    cleanup: CleanupOptions = field(default_factory=CleanupOptions)
+    regex_rules: list[RegexRule] = field(default_factory=list)
     provider_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
     cache_dir: Path = field(default_factory=lambda: Path("user_files/cache"))
     cache_max_mb: int = 200
@@ -74,11 +76,16 @@ class Config:
             k: dict(v) for k, v in (raw.get("provider_settings") or {}).items()
         }
         cache_raw = raw.get("cache", {})
+        cleanup = CleanupOptions.from_dict(raw["cleanup"]) if "cleanup" in raw else CleanupOptions()
+        regex_rules = [RegexRule.from_dict(r) for r in raw.get("regex_rules", [])]
+
         return cls(
             enabled=raw.get("enabled", True),
             default_preset=raw.get("default_preset", ""),
             routing=routing,
             presets=presets,
+            cleanup=cleanup,
+            regex_rules=regex_rules,
             provider_settings=provider_settings,
             cache_dir=Path(cache_raw.get("dir", "user_files/cache")),
             cache_max_mb=int(cache_raw.get("max_mb", 200)),
@@ -99,6 +106,8 @@ class Config:
                 "by_language": self.routing.by_language,
             },
             "presets": [p.to_dict() for p in self.presets],
+            "cleanup": self.cleanup.to_dict(),
+            "regex_rules": [r.to_dict() for r in self.regex_rules],
             "provider_settings": {k: dict(v) for k, v in self.provider_settings.items()},
             "cache": {"dir": str(self.cache_dir), "max_mb": self.cache_max_mb},
             "ffmpeg_path": self.ffmpeg_path,
@@ -110,14 +119,19 @@ class Config:
     def validation_errors(self) -> list[str]:
         """Return human-readable errors for the loaded config.
 
-        Currently checks regex pattern compilability per preset. Intended
-        for the settings dialog ("3 rules invalid in preset X") and for
-        an at-load warning when running inside Anki.
+        Checks regex pattern compilability across the global list and any
+        per-preset overrides. Intended for the settings dialog and for an
+        at-load warning when running inside Anki.
         """
         from .text.regex_rules import validate_rules
 
-        msgs: list[str] = []
+        msgs = [
+            f"Global regex rule {rule.pattern!r}: {err}"
+            for rule, err in validate_rules(self.regex_rules)
+        ]
         for preset in self.presets:
+            if preset.regex_rules is None:
+                continue
             for rule, err in validate_rules(preset.regex_rules):
                 msgs.append(f"Preset {preset.name!r}: pattern {rule.pattern!r}: {err}")
         return msgs

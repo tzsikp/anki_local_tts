@@ -17,10 +17,28 @@ referenced here (or be one ahead while preparing the next release).
 
 > tts japanese voicevox local audio
 
+## Support page
+
+> https://github.com/tzsikp/anki_local_tts/issues
+
 ## Supported Anki versions
 
-Tested against Anki 24.x (Qt 6 / PyQt 6). Pick the latest tested point
-version from AnkiWeb's checkbox list at upload time.
+Tested against Anki 25.09.x (Qt 6 / PyQt 6). At upload time AnkiWeb
+uses a single "branch" with a min/max version range, displayed on the
+listing as `MIN-MAX+` (the `+` auto-appears when max has no hard cap).
+
+- **Min ("Supports from"):** `2.1.66` — Qt6 era, the first Anki release
+  series with PyQt6 and Python 3.13. Anything before that is missing
+  APIs we rely on.
+- **Max ("Supports to"):** the latest Anki version verified working
+  (e.g. `25.09.4`). Enter **without** a `-` prefix so AnkiWeb keeps
+  serving the addon on newer Ankis — the `+` indicator is added in the
+  display automatically.
+- **Only add the `-` prefix to max** when a specific future Anki release
+  breaks us and we want to stop installs on that version and beyond.
+
+Bump the max number whenever we test on a newer Anki release. The min
+should only move up when we actually start relying on a newer aqt API.
 
 ## Description
 
@@ -33,7 +51,8 @@ Cloud TTS handles Japanese poorly, and the good engines (ElevenLabs, OpenAI, Azu
 - Run [VOICEVOX](https://voicevox.hiroshiba.jp/) (free, local, dramatically better Japanese quality)
 - Pick voices via a live "Pick voice from server" dialog with a built-in test play
 - Route presets centrally: per-deck, per-note-type, or per-language, edited from one dialog — no template re-saves
-- Cache synthesized audio (Opus, ~12× smaller than WAV) keyed by preset config, never touches `collection.media`
+- Global cleanup + regex rules in a dedicated Rules tab, with optional per-preset overrides
+- Cache synthesized audio (Opus, ~12× smaller than WAV) keyed only by provider+options+processed text, so tweaking rules doesn't reinvalidate everything; never touches `collection.media`
 - Use Anki's built-in `{{tts ja_JP voices=LocalTTS:Field}}` tag — no custom template syntax
 
 ## Requirements

@@ -252,16 +252,18 @@ GitHub remote: `tzsikp/anki_local_tts` (over SSH alias `github.tzsikp`).
 
 ## 10. Status
 
-**End-to-end working in Anki against VOICEVOX.** Last touched 2026-05-22.
+**End-to-end working in Anki against VOICEVOX.** Last touched 2026-05-24.
 
 What's done:
 - Full package per §4 — `addon.py`, `config.py`, `presets.py`, `routing.py`, `cache.py`, `player.py`, `_log.py`, `text/{cleanup,regex_rules}.py`, `providers/{base,voicevox}.py`, `gui/{settings,preset_editor}.py`.
-- **GUI complete (initial pass):** tabbed Settings dialog with General / Providers / Presets / Routing tabs; modal preset editor with dynamic provider-options form, cleanup flags, regex rules table + Validate; live voice picker (new-preset only) with built-in test-play; quick-switcher submenu (`Tools → Local TTS · Routes`) rebuilt on `aboutToShow`.
-- **Provider / preset settings split:** endpoint hoisted into `config.provider_settings`; not in `preset.fingerprint`, so moving servers doesn't invalidate cached audio. One-off migration in `scripts/migrate_provider_endpoint.py`.
+- **GUI:** tabbed Settings dialog with General / Providers / Presets / **Rules** / Routing tabs; modal preset editor with dynamic provider-options form and optional "Override global cleanup/regex" sections; live voice picker (new-preset only) with built-in test-play; quick-switcher submenu (`Tools → Local TTS · Routes`) rebuilt on `aboutToShow`.
+- **Cleanup + regex are global** on `Config`, edited under Settings → Rules. Presets may opt-in to override either with their own block (Optional fields, default None).
+- **Narrow fingerprint:** `Preset.fingerprint()` covers only `provider + options`. Cleanup, regex, name, and endpoint are out — editing them doesn't invalidate cached audio for unaffected text.
+- **Provider / preset settings split:** endpoint hoisted into `config.provider_settings`. One-off migration in `scripts/migrate_provider_endpoint.py`.
 - **Opus cache** via ffmpeg subprocess; WAV fallback. macOS Homebrew probing because Anki's PATH excludes `/opt/homebrew/bin`.
 - **Playback fix:** `_on_done` explicitly calls `av_player.insert_file(audio_file_path)` then `cb()`. Anki's default `TTSProcessPlayer._on_done` does not auto-enqueue.
 - **Diagnostics:** rotating file logger at `user_files/log/local_tts.log`; throttled tooltips (once per session per error type) on provider failure.
-- **26 passing tests** under `uv run pytest`. Pure modules only; GUI / Anki-integrated code smoke-tested manually.
+- **33 passing tests** under `uv run pytest`. Pure modules only; GUI / Anki-integrated code smoke-tested manually.
 - `scripts/dev_link.py` (symlink into `addons21/`), `scripts/build_addon.py` (produces `.ankiaddon`).
 
 Open follow-ups, in rough priority:

@@ -36,9 +36,9 @@ Routing table             deck → notetype → language → default
    ↓
 Cleanup pipeline          HTML, ruby, brackets, cloze, CJK spaces
    ↓
-User regex rules          ordered, transparent
+Regex rules               global, with optional per-preset override
    ↓
-Cache lookup              sha256(preset fingerprint ‖ processed text)
+Cache lookup              sha256(provider+options ‖ processed text)
    ↓  miss
 Provider                  VOICEVOX (Piper, Style-Bert-VITS2 next)
    ↓
@@ -93,7 +93,8 @@ Produces `dist/local_tts.ankiaddon` — double-click to install in Anki.
 2. **Install the addon** (above).
 3. **Tools → Local TTS settings…**
    - *Providers* tab: confirm or change the VOICEVOX endpoint.
-   - *Presets* tab: the bundled "Japanese VOICEVOX 春日部つむぎ · ノーマル" preset is ready. Click New to add more; the editor's "Pick voice from server…" button (only on new presets) fetches the live speaker list from VOICEVOX with a built-in test-play.
+   - *Presets* tab: the bundled "Japanese VOICEVOX 春日部つむぎ · ノーマル" preset is ready. Click New to add more; the editor's "Pick voice from server…" button (only on new presets) fetches the live speaker list from VOICEVOX with a built-in test-play. Each preset may optionally override the global cleanup / regex rules.
+   - *Rules* tab: global cleanup pipeline flags and ordered regex rules. Applied to every preset that doesn't have an explicit override.
    - *Routing* tab: which preset plays for which deck / note type / language.
 4. **Card template** — add to any field you want spoken. Edit your note type's card template (Browse → Cards…) and insert, for example:
    ```
@@ -113,7 +114,8 @@ Three levels:
 | Scope | Lives in | Example | Edited via |
 |---|---|---|---|
 | **Provider settings** | `provider_settings[name]` | VOICEVOX `endpoint` | Settings → Providers |
-| **Preset** (voice config) | `presets[*]` | speaker_id, speed, pitch, cleanup flags, regex rules | Settings → Presets |
+| **Preset** (voice config) | `presets[*]` | speaker_id, speed, pitch, optional cleanup/regex overrides | Settings → Presets |
+| **Global rules** | `cleanup` + `regex_rules` | ruby/bracket mode, vocabulary regex fixes | Settings → Rules |
 | **Routing** | `routing.{by_deck,by_notetype,by_language}` | "deck 12345 → preset X" | Settings → Routing |
 
 Provider settings are **shared across all presets of that provider**. Moving your VOICEVOX server only requires updating the endpoint once.
@@ -129,18 +131,20 @@ Fixed-order, applied before user regex rules:
 5. Whitespace normalize
 6. Collapse spaces between Japanese characters (artifacts from furigana add-ons; only collapses where both neighbours are JP)
 
-Each step is a pure function. Flags live on the preset's `cleanup` block.
+Each step is a pure function. Flags live globally on `config.cleanup`; individual presets may override via the "Override global cleanup" checkbox in the preset editor.
 
 ### Regex rules
 
-Per-preset, ordered, applied after the cleanup pipeline. Use them for vocabulary fixes a model gets wrong (e.g. `20日` → `はつか`). The preset editor's regex table includes a **Validate** button that compiles every pattern and reports failures inline.
+Global, ordered, applied after the cleanup pipeline. Use them for vocabulary fixes a model gets wrong (e.g. `20日` → `はつか`). Edited under Settings → Rules. A preset may replace the global list with its own via the "Override global regex rules" checkbox in the preset editor.
+
+The Validate button on either table compiles every pattern and reports failures inline.
 
 Validation also runs at config load — broken patterns produce a one-time warning popup, and the runtime skips broken rules instead of crashing.
 
 ### Cache
 
 - **Location:** `<addon-folder>/user_files/cache/`. Never touches `collection.media`.
-- **Key:** `sha256(preset.fingerprint() ‖ processed_text)`. Endpoint is **not** part of the fingerprint — moving servers doesn't invalidate cached audio.
+- **Key:** `sha256(preset.fingerprint() ‖ processed_text)`. The fingerprint covers only `provider + options`. Endpoint, cleanup flags, and regex rules are **not** in it — moving servers or tweaking rules doesn't invalidate audio for unaffected text.
 - **Format:** Opus if `ffmpeg` is on PATH (or set explicitly in Settings → General), WAV otherwise.
 - **Eviction:** LRU by file `atime`, capped at the configured MB ceiling.
 - **Clear:** Settings → General → "Clear cache now".

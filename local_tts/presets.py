@@ -1,11 +1,14 @@
 """Preset data model.
 
-A `Preset` bundles everything needed to turn a piece of card text into
-audio: which provider to call, that provider's options, the cleanup
-flags, and a list of user-defined regex rewrites. Presets are the unit
-of cache invalidation — their `fingerprint()` is the sha256 of their
-canonical JSON and is part of every cache key, so editing any field
-transparently invalidates derived audio.
+A `Preset` is a voice configuration: provider + options. Cleanup flags
+and regex rules live globally on `Config`; a preset may *optionally*
+override either with its own block (`cleanup` / `regex_rules` set to
+non-None on the preset wins over the global value).
+
+`fingerprint()` covers only `provider` + `options`. Cleanup and regex
+rules — global or per-preset — only act by transforming text, so their
+effect is already captured by the processed-text dimension of the cache
+key. Editing them doesn't invalidate audio for unaffected text.
 """
 
 from __future__ import annotations
@@ -72,40 +75,53 @@ class Preset:
     """A named TTS configuration referenced by the routing table.
 
     `provider` selects an entry in `ProviderRegistry`; `options` is the
-    provider-specific bag (voice id, endpoint, speed...). Providers must
-    never see fields outside `options` — that's the abstraction line.
+    provider-specific bag (voice id, speed...). Providers must never see
+    fields outside `options` — that's the abstraction line.
     """
 
     name: str
     provider: str
     options: dict[str, Any] = field(default_factory=dict)
-    cleanup: CleanupOptions = field(default_factory=CleanupOptions)
-    regex_rules: list[RegexRule] = field(default_factory=list)
+    cleanup: CleanupOptions | None = None
+    regex_rules: list[RegexRule] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "name": self.name,
             "provider": self.provider,
             "options": dict(self.options),
-            "cleanup": self.cleanup.to_dict(),
-            "regex_rules": [r.to_dict() for r in self.regex_rules],
         }
+        if self.cleanup is not None:
+            out["cleanup"] = self.cleanup.to_dict()
+        if self.regex_rules is not None:
+            out["regex_rules"] = [r.to_dict() for r in self.regex_rules]
+        return out
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Preset:
+        cleanup = CleanupOptions.from_dict(raw["cleanup"]) if "cleanup" in raw else None
+        regex_rules = (
+            [RegexRule.from_dict(r) for r in raw["regex_rules"]]
+            if "regex_rules" in raw else None
+        )
         return cls(
             name=raw["name"],
             provider=raw["provider"],
             options=dict(raw.get("options", {})),
-            cleanup=CleanupOptions.from_dict(raw.get("cleanup", {})),
-            regex_rules=[RegexRule.from_dict(r) for r in raw.get("regex_rules", [])],
+            cleanup=cleanup,
+            regex_rules=regex_rules,
         )
 
     def fingerprint(self) -> str:
-        """Stable hash of the preset's canonical JSON; drives cache keys.
+        """Stable hash of `provider` + `options`; drives cache keys.
 
-        Any change to provider/options/cleanup/regex flips the fingerprint,
-        which invalidates every cache entry derived from this preset.
+        Cleanup and regex rules are NOT included — they only act by
+        transforming text, and that effect is already captured by the
+        processed-text dimension of the cache key. Renaming a preset
+        also doesn't change the fingerprint.
         """
-        payload = json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        payload = json.dumps(
+            {"provider": self.provider, "options": self.options},
+            sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+        )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()

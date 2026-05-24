@@ -81,10 +81,7 @@ def test_config_surfaces_validation_errors():
     from local_tts.config import Config
 
     cfg = Config.from_dict({
-        "presets": [
-            {"name": "p", "provider": "voicevox",
-             "regex_rules": [{"pattern": "(bad", "replacement": ""}]}
-        ]
+        "regex_rules": [{"pattern": "(bad", "replacement": ""}],
     })
     msgs = cfg.validation_errors()
-    assert len(msgs) == 1 and "'p'" in msgs[0] and "(bad" in msgs[0]
+    assert len(msgs) == 1 and "Global" in msgs[0] and "(bad" in msgs[0]

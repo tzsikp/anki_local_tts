@@ -21,6 +21,7 @@ from aqt.qt import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -37,7 +38,8 @@ from aqt.qt import (
     Qt,
 )
 
-from ..presets import Preset
+from ..presets import CleanupOptions, Preset, RegexRule
+from ..text.regex_rules import validate_pattern
 from .preset_editor import PresetEditorDialog
 
 if TYPE_CHECKING:
@@ -62,6 +64,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._build_general_tab(), "General")
         tabs.addTab(self._build_providers_tab(), "Providers")
         tabs.addTab(self._build_presets_tab(), "Presets")
+        tabs.addTab(self._build_rules_tab(), "Rules")
         tabs.addTab(self._build_routing_tab(), "Routing")
 
         buttons = QDialogButtonBox(
@@ -303,6 +306,12 @@ class SettingsDialog(QDialog):
             i += 1
         return f"{base} {i}"
 
+    # ---------------- Rules ----------------
+
+    def _build_rules_tab(self) -> QWidget:
+        self._rules = _RulesTab(self._cfg.cleanup, self._cfg.regex_rules)
+        return self._rules
+
     # ---------------- Routing ----------------
 
     def _build_routing_tab(self) -> QWidget:
@@ -372,6 +381,8 @@ class SettingsDialog(QDialog):
         self._cfg.ffmpeg_path = self._ffmpeg.text().strip() or None
         self._cfg.cache_max_mb = self._cache_max.value()
         self._cfg.provider_settings = self._collect_provider_settings()
+        self._cfg.cleanup = self._rules.collect_cleanup()
+        self._cfg.regex_rules = self._rules.collect_rules()
         self._cfg.routing.by_deck = self._routing_deck.to_dict()
         self._cfg.routing.by_notetype = self._routing_notetype.to_dict()
         self._cfg.routing.by_language = self._routing_lang.to_dict()
@@ -425,6 +436,163 @@ def _read_schema_widget(widget: QWidget):
     if isinstance(widget, QLineEdit):
         return widget.text()
     return None
+
+
+_RUBY_MODES = [("base", "Base character (本)"), ("reading", "Reading (ほん)")]
+_BRACKET_MODES = [
+    ("base", "Base before bracket (日々)"),
+    ("reading", "Reading inside bracket (ひび)"),
+    ("strip_brackets_only", "Keep both"),
+]
+
+
+class _RulesTab(QWidget):
+    """Global text-processing config: cleanup pipeline flags + ordered
+    regex rules applied to every preset. Sits between the cleanup pass
+    and the provider call.
+    """
+
+    def __init__(self, cleanup: CleanupOptions, rules: list[RegexRule]) -> None:
+        super().__init__()
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(14)
+
+        outer.addWidget(_section_label(
+            "Applied to every preset. Cleanup runs first, then regex rules in order. "
+            "Editing these does not invalidate cached audio for unaffected text."
+        ))
+
+        outer.addWidget(self._build_cleanup_box(cleanup))
+        outer.addWidget(self._build_regex_box(rules), 1)
+
+    def _build_cleanup_box(self, cleanup: CleanupOptions) -> QGroupBox:
+        box = QGroupBox("Cleanup")
+        form = QFormLayout(box)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(6)
+
+        self._ruby_mode = QComboBox()
+        for v, label in _RUBY_MODES:
+            self._ruby_mode.addItem(label, v)
+        self._ruby_mode.setCurrentIndex(max(0, self._ruby_mode.findData(cleanup.ruby_mode)))
+        form.addRow("Ruby tags", self._ruby_mode)
+
+        self._bracket_mode = QComboBox()
+        for v, label in _BRACKET_MODES:
+            self._bracket_mode.addItem(label, v)
+        self._bracket_mode.setCurrentIndex(max(0, self._bracket_mode.findData(cleanup.bracket_mode)))
+        form.addRow("Bracket readings", self._bracket_mode)
+
+        self._brackets = QLineEdit(", ".join(cleanup.brackets))
+        self._brackets.setPlaceholderText("[], (), {}")
+        form.addRow("Bracket pairs", self._brackets)
+
+        self._collapse_cjk = QCheckBox("Collapse spaces between Japanese characters")
+        self._collapse_cjk.setChecked(cleanup.collapse_cjk_spaces)
+        form.addRow("", self._collapse_cjk)
+        return box
+
+    def _build_regex_box(self, rules: list[RegexRule]) -> QGroupBox:
+        box = QGroupBox("Regex rules — applied in order after cleanup")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        self._rules_table = QTableWidget(0, 3)
+        self._rules_table.setHorizontalHeaderLabels(["On", "Pattern", "Replacement"])
+        header = self._rules_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self._rules_table.verticalHeader().setVisible(False)
+        self._rules_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        for rule in rules:
+            self._append_rule_row(rule)
+
+        self._status = QLabel("")
+        self._status.setStyleSheet("color: gray;")
+        self._status.setWordWrap(True)
+
+        btns = QHBoxLayout()
+        add_btn = QPushButton("Add")
+        add_btn.clicked.connect(lambda: self._append_rule_row(RegexRule(pattern="", replacement="")))
+        del_btn = QPushButton("Remove")
+        del_btn.clicked.connect(self._remove_selected_rules)
+        validate_btn = QPushButton("Validate")
+        validate_btn.clicked.connect(self._validate_rules)
+        btns.addWidget(add_btn)
+        btns.addWidget(del_btn)
+        btns.addStretch(1)
+        btns.addWidget(validate_btn)
+
+        layout.addWidget(self._rules_table, 1)
+        layout.addLayout(btns)
+        layout.addWidget(self._status)
+        return box
+
+    def _append_rule_row(self, rule: RegexRule) -> None:
+        row = self._rules_table.rowCount()
+        self._rules_table.insertRow(row)
+        check = QCheckBox()
+        check.setChecked(rule.enabled)
+        wrapper = QWidget()
+        hl = QHBoxLayout(wrapper)
+        hl.setContentsMargins(6, 0, 0, 0)
+        hl.addWidget(check)
+        hl.addStretch(1)
+        self._rules_table.setCellWidget(row, 0, wrapper)
+        wrapper.setProperty("checkbox", check)
+        self._rules_table.setItem(row, 1, QTableWidgetItem(rule.pattern))
+        self._rules_table.setItem(row, 2, QTableWidgetItem(rule.replacement))
+
+    def _remove_selected_rules(self) -> None:
+        rows = sorted({i.row() for i in self._rules_table.selectedIndexes()}, reverse=True)
+        for row in rows:
+            self._rules_table.removeRow(row)
+
+    def _validate_rules(self) -> None:
+        broken: list[tuple[int, str, str]] = []
+        for row in range(self._rules_table.rowCount()):
+            item = self._rules_table.item(row, 1)
+            pattern = item.text() if item else ""
+            if not pattern:
+                continue
+            err = validate_pattern(pattern)
+            if err:
+                broken.append((row + 1, pattern, err))
+        if not broken:
+            self._status.setText(f"All {self._rules_table.rowCount()} pattern(s) compile.")
+            self._status.setStyleSheet("color: #2e7d32;")
+            return
+        lines = [f"Row {row}: {pat!r} — {err}" for row, pat, err in broken]
+        self._status.setText("\n".join(lines))
+        self._status.setStyleSheet("color: #c62828;")
+
+    def collect_cleanup(self) -> CleanupOptions:
+        brackets = [b.strip() for b in self._brackets.text().split(",") if b.strip()]
+        return CleanupOptions(
+            ruby_mode=self._ruby_mode.currentData(),
+            bracket_mode=self._bracket_mode.currentData(),
+            brackets=brackets or ["[]", "()"],
+            collapse_cjk_spaces=self._collapse_cjk.isChecked(),
+        )
+
+    def collect_rules(self) -> list[RegexRule]:
+        rules: list[RegexRule] = []
+        for row in range(self._rules_table.rowCount()):
+            wrapper = self._rules_table.cellWidget(row, 0)
+            check = wrapper.property("checkbox") if wrapper else None
+            enabled = bool(check.isChecked()) if isinstance(check, QCheckBox) else True
+            pattern_item = self._rules_table.item(row, 1)
+            replacement_item = self._rules_table.item(row, 2)
+            pattern = pattern_item.text() if pattern_item else ""
+            replacement = replacement_item.text() if replacement_item else ""
+            if not pattern:
+                continue
+            rules.append(RegexRule(pattern=pattern, replacement=replacement, enabled=enabled))
+        return rules
 
 
 _COMMON_LANGS = [

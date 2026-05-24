@@ -1,4 +1,4 @@
-from local_tts.presets import Preset, RegexRule
+from local_tts.presets import CleanupOptions, Preset, RegexRule
 
 
 def _preset(**kw) -> Preset:
@@ -11,18 +11,43 @@ def test_fingerprint_stable_across_key_order():
     assert a.fingerprint() == b.fingerprint()
 
 
-def test_fingerprint_changes_with_regex():
-    base = _preset()
-    other = _preset(regex_rules=[RegexRule(pattern="x", replacement="y")])
-    assert base.fingerprint() != other.fingerprint()
+def test_fingerprint_ignores_name_cleanup_and_regex():
+    a = _preset(options={"speaker_id": 1})
+    b = Preset(
+        name="different",
+        provider="voicevox",
+        options={"speaker_id": 1},
+        cleanup=CleanupOptions(ruby_mode="reading"),
+        regex_rules=[RegexRule(pattern="x", replacement="y")],
+    )
+    assert a.fingerprint() == b.fingerprint()
 
 
-def test_roundtrip():
+def test_fingerprint_changes_with_options():
+    a = _preset(options={"speaker_id": 1})
+    b = _preset(options={"speaker_id": 2})
+    assert a.fingerprint() != b.fingerprint()
+
+
+def test_roundtrip_minimal_no_overrides():
+    raw = {"name": "p", "provider": "voicevox", "options": {"speaker_id": 8}}
+    assert Preset.from_dict(raw).to_dict() == raw
+
+
+def test_roundtrip_with_overrides():
     raw = {
         "name": "p",
         "provider": "voicevox",
         "options": {"speaker_id": 8},
-        "cleanup": {"ruby_mode": "reading", "bracket_mode": "base", "brackets": ["[]"], "collapse_cjk_spaces": True},
+        "cleanup": {"ruby_mode": "reading", "bracket_mode": "base",
+                    "brackets": ["[]"], "collapse_cjk_spaces": True},
         "regex_rules": [{"pattern": "a", "replacement": "b", "enabled": True}],
     }
     assert Preset.from_dict(raw).to_dict() == raw
+
+
+def test_override_distinguishes_none_from_empty_list():
+    no_override = Preset.from_dict({"name": "p", "provider": "voicevox"})
+    empty_override = Preset.from_dict({"name": "p", "provider": "voicevox", "regex_rules": []})
+    assert no_override.regex_rules is None
+    assert empty_override.regex_rules == []

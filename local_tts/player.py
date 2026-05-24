@@ -82,7 +82,10 @@ class LocalTTSPlayer(TTSProcessPlayer):
             return
         log.debug("resolved preset=%s provider=%s", preset.name, preset.provider)
 
-        processed = regex_rules.apply(cleanup.clean(text, preset.cleanup), preset.regex_rules)
+        cfg = self._addon.config
+        cleanup_opts = preset.cleanup if preset.cleanup is not None else cfg.cleanup
+        rules = preset.regex_rules if preset.regex_rules is not None else cfg.regex_rules
+        processed = regex_rules.apply(cleanup.clean(text, cleanup_opts), rules)
         if not processed.strip():
             log.debug("text empty after cleanup, skipping")
             return

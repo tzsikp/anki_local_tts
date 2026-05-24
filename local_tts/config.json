@@ -13,6 +13,13 @@
             "endpoint": "http://localhost:50021"
         }
     },
+    "cleanup": {
+        "ruby_mode": "base",
+        "bracket_mode": "base",
+        "brackets": ["[]", "()"],
+        "collapse_cjk_spaces": true
+    },
+    "regex_rules": [],
     "presets": [
         {
             "name": "Japanese VOICEVOX 春日部つむぎ · ノーマル",
@@ -22,14 +29,7 @@
                 "speed": 0.95,
                 "pitch": 0.0,
                 "intonation": 1.1
-            },
-            "cleanup": {
-                "ruby_mode": "base",
-                "bracket_mode": "base",
-                "brackets": ["[]", "()"],
-                "collapse_cjk_spaces": true
-            },
-            "regex_rules": []
+            }
         }
     ],
     "cache": {
