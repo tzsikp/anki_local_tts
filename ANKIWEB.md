@@ -1,5 +1,7 @@
 # AnkiWeb listing
 
+Live listing: https://ankiweb.net/shared/info/1279936795
+
 The text below is the source-of-truth for the AnkiWeb shared-addons listing.
 Update it whenever the listing should change, commit, and paste into the
 AnkiWeb "Upload new version" form alongside the matching `.ankiaddon`.

@@ -62,9 +62,13 @@ Templates only declare *that* a field wants TTS. **Which** preset speaks is deci
 
 ---
 
-## Install (developer / current state)
+## Install
 
-The addon isn't on AnkiWeb yet. Two ways to run it from this repo:
+Easiest: from [AnkiWeb](https://ankiweb.net/shared/info/1279936795) via Tools → Add-ons → Get Add-ons in Anki.
+
+Or grab the `.ankiaddon` from the [latest GitHub release](https://github.com/tzsikp/anki_local_tts/releases/latest) and double-click to install.
+
+### Run from this repo (developer)
 
 ### Symlink (live edits)
 

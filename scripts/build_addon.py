@@ -5,6 +5,7 @@ The .ankiaddon format is a flat zip of the addon folder's contents
 """
 from __future__ import annotations
 
+import json
 import sys
 import zipfile
 from pathlib import Path
@@ -12,7 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "local_tts"
 DIST = ROOT / "dist"
-OUT = DIST / "local_tts.ankiaddon"
+
+
+def _version() -> str:
+    raw = json.loads((PKG / "manifest.json").read_text(encoding="utf-8"))
+    return str(raw.get("human_version") or "").strip()
 
 EXCLUDE_DIRS = {"__pycache__", "user_files", ".pytest_cache"}
 EXCLUDE_NAMES = {"meta.json", ".DS_Store"}
@@ -36,13 +41,18 @@ def main() -> int:
     if not (PKG / "manifest.json").exists():
         print(f"missing {PKG / 'manifest.json'}", file=sys.stderr)
         return 1
+    version = _version()
+    if not version:
+        print("manifest.json missing human_version", file=sys.stderr)
+        return 1
     DIST.mkdir(exist_ok=True)
-    if OUT.exists():
-        OUT.unlink()
-    with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as zf:
+    out = DIST / f"local_tts-{version}.ankiaddon"
+    if out.exists():
+        out.unlink()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         for src, arc in iter_files():
             zf.write(src, arc)
-    print(f"wrote {OUT.relative_to(ROOT)} ({OUT.stat().st_size // 1024} KB)")
+    print(f"wrote {out.relative_to(ROOT)} ({out.stat().st_size // 1024} KB)")
     return 0
 
 

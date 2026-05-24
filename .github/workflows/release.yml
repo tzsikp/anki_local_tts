@@ -31,15 +31,14 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/local_tts.ankiaddon
+          files: dist/local_tts-*.ankiaddon
           generate_release_notes: true
           body: |
             ## Install
 
-            Download `local_tts.ankiaddon` below and double-click it; Anki will
-            prompt you to install. Or use the dev symlink workflow described in
-            the [README](https://github.com/${{ github.repository }}#install-developer--current-state).
+            Easiest: install from [AnkiWeb](https://ankiweb.net/shared/info/1279936795)
+            via Tools → Add-ons → Get Add-ons in Anki.
 
-            To publish to AnkiWeb, upload this file via
-            [ankiweb.net/shared/upload](https://ankiweb.net/shared/upload)
-            (or "Upload new version" on the existing listing).
+            Otherwise, download `local_tts.ankiaddon` below and double-click it;
+            Anki will prompt you to install. Or use the dev symlink workflow
+            described in the [README](https://github.com/${{ github.repository }}#install-developer--current-state).
