@@ -145,6 +145,10 @@ The Validate button on either table compiles every pattern and reports failures 
 
 Validation also runs at config load — broken patterns produce a one-time warning popup, and the runtime skips broken rules instead of crashing.
 
+### Split marker (VOICEVOX)
+
+VOICEVOX inserts an ~0.15s pause at every `、`, which is too long when the comma separates list items rather than clauses (`年に一、二回`). Put a `・` (configurable) at the spot in your card text where you want a tight pause: the adapter splits on the marker, synthesizes each chunk separately, and concatenates with exactly the configured silence (default 0.03s; set 0 to remove). `、` and `。` inside each chunk keep the engine default — only the marker positions get the short pause. Cards that don't contain the marker are unaffected and their cached audio stays valid.
+
 ### Cache
 
 - **Location:** `<addon-folder>/user_files/cache/`. Never touches `collection.media`.

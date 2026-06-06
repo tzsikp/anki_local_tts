@@ -74,12 +74,17 @@ class AudioCache:
                  self.cache_dir, max_mb, self.ffmpeg or "<none — storing WAV>")
 
     @staticmethod
-    def key(preset: Preset, processed_text: str) -> str:
-        """Cache key bound to both the preset config and the post-cleanup text."""
+    def key(preset: Preset, processed_text: str, extra: str = "") -> str:
+        """Cache key bound to the preset config, post-cleanup text, and any
+        per-call synthesis modifier (e.g. a pause-rule override) that
+        changes the audio without belonging in the preset fingerprint."""
         h = hashlib.sha256()
         h.update(preset.fingerprint().encode("utf-8"))
         h.update(b"\x00")
         h.update(processed_text.encode("utf-8"))
+        if extra:
+            h.update(b"\x00")
+            h.update(extra.encode("utf-8"))
         return h.hexdigest()
 
     def get(self, key: str) -> Path | None:

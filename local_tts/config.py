@@ -35,6 +35,15 @@ class Config:
     presets: list[Preset] = field(default_factory=list)
     cleanup: CleanupOptions = field(default_factory=CleanupOptions)
     regex_rules: list[RegexRule] = field(default_factory=list)
+    split_marker: str = "・"
+    split_pause_length: float = 0.03
+    # Cross-provider voice param defaults. A preset's `options` may omit
+    # any of these keys to inherit the global value; explicit values on
+    # the preset override. Speaker-identifying keys (`speaker_id`) are
+    # voice-specific and not eligible for inheritance.
+    voice_defaults: dict[str, Any] = field(
+        default_factory=lambda: {"speed": 1.0, "pitch": 0.0, "intonation": 1.0, "volume": 1.0}
+    )
     provider_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
     cache_dir: Path = field(default_factory=lambda: Path("user_files/cache"))
     cache_max_mb: int = 200
@@ -86,6 +95,11 @@ class Config:
             presets=presets,
             cleanup=cleanup,
             regex_rules=regex_rules,
+            split_marker=raw.get("split_marker", "・"),
+            split_pause_length=float(raw.get("split_pause_length", 0.03)),
+            voice_defaults=dict(raw.get("voice_defaults") or {
+                "speed": 1.0, "pitch": 0.0, "intonation": 1.0, "volume": 1.0
+            }),
             provider_settings=provider_settings,
             cache_dir=Path(cache_raw.get("dir", "user_files/cache")),
             cache_max_mb=int(cache_raw.get("max_mb", 200)),
@@ -108,6 +122,9 @@ class Config:
             "presets": [p.to_dict() for p in self.presets],
             "cleanup": self.cleanup.to_dict(),
             "regex_rules": [r.to_dict() for r in self.regex_rules],
+            "split_marker": self.split_marker,
+            "split_pause_length": self.split_pause_length,
+            "voice_defaults": dict(self.voice_defaults),
             "provider_settings": {k: dict(v) for k, v in self.provider_settings.items()},
             "cache": {"dir": str(self.cache_dir), "max_mb": self.cache_max_mb},
             "ffmpeg_path": self.ffmpeg_path,

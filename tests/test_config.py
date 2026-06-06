@@ -30,6 +30,14 @@ def test_defaults_when_nothing_provided():
     cfg = Config.from_dict({})
     assert cfg.cleanup == CleanupOptions()
     assert cfg.regex_rules == []
+    assert cfg.voice_defaults == {"speed": 1.0, "pitch": 0.0, "intonation": 1.0, "volume": 1.0}
+
+
+def test_voice_defaults_roundtrip():
+    raw = {"voice_defaults": {"speed": 0.95, "pitch": 0.0, "intonation": 1.1, "volume": 1.4}}
+    cfg = Config.from_dict(raw)
+    assert cfg.voice_defaults == raw["voice_defaults"]
+    assert cfg.to_dict()["voice_defaults"] == raw["voice_defaults"]
 
 
 def test_preset_override_does_not_leak_into_global():

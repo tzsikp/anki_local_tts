@@ -94,7 +94,15 @@ class LocalTTSPlayer(TTSProcessPlayer):
             return
         log.debug("processed text=%r", processed[:80])
 
-        key = self._addon.cache.key(preset, processed)
+        # Marker-based chunking only affects audio when the marker is
+        # actually in the text — for unrelated cards the cache key, and
+        # therefore any pre-existing audio, is unchanged.
+        marker = cfg.split_marker if cfg.split_marker and cfg.split_marker in processed else None
+        extra = f"split={marker}|{cfg.split_pause_length}" if marker else ""
+        # Resolve inherit-from-global keys (volume, speed, pitch, ...) so the
+        # cache key and the provider both see the effective bag.
+        effective = preset.with_defaults(cfg.voice_defaults)
+        key = self._addon.cache.key(effective, processed, extra=extra)
         cached = self._addon.cache.get(key)
         if cached is None:
             provider = self._addon.providers.get(preset.provider)
@@ -103,7 +111,11 @@ class LocalTTSPlayer(TTSProcessPlayer):
                 return
             provider_settings = self._addon.config.provider_settings.get(preset.provider, {})
             try:
-                data = provider.synthesize(processed, preset, provider_settings)
+                data = provider.synthesize(
+                    processed, effective, provider_settings,
+                    split_marker=marker,
+                    split_pause_length=cfg.split_pause_length,
+                )
             except ProviderError as exc:
                 log.error("synth failed: %s", exc)
                 self._notify_once(f"{preset.provider}:{type(exc).__name__}", f"Local TTS: {exc}")

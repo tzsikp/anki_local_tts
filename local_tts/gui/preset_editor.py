@@ -57,6 +57,7 @@ class PresetEditorDialog(QDialog):
         *,
         is_new: bool = False,
         provider_settings: dict | None = None,
+        voice_defaults: dict | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Preset · {preset.name}")
@@ -64,11 +65,13 @@ class PresetEditorDialog(QDialog):
         self._addon = addon
         self._preset = preset
         self._is_new = is_new
-        # Draft provider settings from the surrounding Settings dialog,
-        # so the voice picker / test honour unsaved edits. Falls back to
-        # the live addon config if the dialog wasn't opened from Settings.
+        # Draft provider settings + voice defaults from the surrounding
+        # Settings dialog so the voice picker / test / inherit hints
+        # honour unsaved edits. Falls back to the live addon config.
         self._provider_settings = provider_settings if provider_settings is not None \
             else addon.config.provider_settings
+        self._voice_defaults = voice_defaults if voice_defaults is not None \
+            else dict(addon.config.voice_defaults)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 12)
@@ -139,6 +142,10 @@ class PresetEditorDialog(QDialog):
                 widget.setChecked(bool(value))
             elif isinstance(widget, QLineEdit):
                 widget.setText(str(value))
+            # Voice picker is choosing a concrete value — drop inherit.
+            check = self._inherit_checks.get(key)
+            if check is not None:
+                check.setChecked(False)
         lang = getattr(provider, "display_language", "")
         disp = getattr(provider, "display_name", provider.name)
         full_name = " ".join(part for part in (lang, disp, voice.label) if part)
@@ -213,6 +220,7 @@ class PresetEditorDialog(QDialog):
         while self._options_form.rowCount():
             self._options_form.removeRow(0)
         self._option_widgets.clear()
+        self._inherit_checks: dict[str, QCheckBox] = {}
 
         provider = self._addon.providers.get(provider_name)
         if provider is None:
@@ -222,9 +230,38 @@ class PresetEditorDialog(QDialog):
         schema = provider.options_schema()
         current = self._preset.options if provider_name == self._preset.provider else {}
         for key, spec in schema.items():
-            widget = self._make_option_widget(spec, current.get(key, spec.get("default")))
+            stored = current.get(key)
+            inherit_default = self._voice_defaults.get(key)
+            inherits = key in self._voice_defaults
+            initial = stored if stored is not None else (
+                inherit_default if inherits else spec.get("default")
+            )
+            widget = self._make_option_widget(spec, initial)
             self._option_widgets[key] = widget
-            self._options_form.addRow(key, widget)
+            if inherits:
+                row = self._make_inherit_row(key, widget, inherit_default,
+                                              stored_is_present=(key in current and stored is not None))
+                self._options_form.addRow(key, row)
+            else:
+                self._options_form.addRow(key, widget)
+
+    def _make_inherit_row(self, key: str, widget: QWidget, global_value: Any,
+                          *, stored_is_present: bool) -> QWidget:
+        """Wrap an inheritable option's widget with an 'Use global (X)' check."""
+        wrap = QWidget()
+        row = QHBoxLayout(wrap)
+        row.setContentsMargins(0, 0, 0, 0)
+        check = QCheckBox(f"Use global ({global_value})")
+        check.setChecked(not stored_is_present)
+
+        def apply(on: bool) -> None:
+            widget.setEnabled(not on)
+        check.toggled.connect(apply)
+        apply(check.isChecked())
+        row.addWidget(widget, 1)
+        row.addWidget(check)
+        self._inherit_checks[key] = check
+        return wrap
 
     def _make_option_widget(self, spec: dict[str, Any], value: Any) -> QWidget:
         t = spec.get("type", "string")
@@ -362,6 +399,10 @@ class PresetEditorDialog(QDialog):
     def _collect_provider_options(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for key, widget in self._option_widgets.items():
+            check = self._inherit_checks.get(key)
+            if check is not None and check.isChecked():
+                # Key omitted from preset.options → inherits global default.
+                continue
             if isinstance(widget, QSpinBox):
                 out[key] = widget.value()
             elif isinstance(widget, QDoubleSpinBox):

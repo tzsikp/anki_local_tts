@@ -58,8 +58,24 @@ class Provider(Protocol):
     def options_schema(self) -> dict[str, Any]:
         """Schema for per-preset (voice-level) options."""
 
-    def synthesize(self, text: str, preset: Preset, provider_settings: dict[str, Any]) -> bytes:
-        """Return WAV bytes. Raise `ProviderError` on any failure."""
+    def synthesize(
+        self,
+        text: str,
+        preset: Preset,
+        provider_settings: dict[str, Any],
+        *,
+        split_marker: str | None = None,
+        split_pause_length: float = 0.0,
+    ) -> bytes:
+        """Return WAV bytes. Raise `ProviderError` on any failure.
+
+        When `split_marker` is non-empty and present in `text`, the
+        provider must split on it and synthesize each chunk separately,
+        concatenating the results with `split_pause_length` seconds of
+        silence between. Providers that don't implement chunking may
+        ignore these kwargs and synthesize the raw text including the
+        marker.
+        """
 
     def health_check(self, provider_settings: dict[str, Any]) -> tuple[bool, str]:
         """Quick liveness check for the settings dialog's Test button."""

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..audio import concat_wavs
 from ..presets import Preset
 from .base import ProviderError, VoiceInfo
 
@@ -33,19 +34,61 @@ class VoicevoxProvider:
             "speed": {"type": "number", "default": 1.0},
             "pitch": {"type": "number", "default": 0.0},
             "intonation": {"type": "number", "default": 1.0},
+            "volume": {"type": "number", "default": 1.0, "min": 0.0, "max": 4.0},
         }
 
     @staticmethod
     def _endpoint(provider_settings: dict[str, Any]) -> str:
         return (provider_settings.get("endpoint") or "http://localhost:50021").rstrip("/")
 
-    def synthesize(self, text: str, preset: Preset, provider_settings: dict[str, Any]) -> bytes:
-        import requests
-        import requests.exceptions as rex
-
+    def synthesize(
+        self,
+        text: str,
+        preset: Preset,
+        provider_settings: dict[str, Any],
+        *,
+        split_marker: str | None = None,
+        split_pause_length: float = 0.0,
+    ) -> bytes:
         opts = preset.options
         endpoint = self._endpoint(provider_settings)
         speaker = int(opts.get("speaker_id", 1))
+
+        chunks = self._split(text, split_marker)
+        if len(chunks) == 1:
+            return self._synth_one(chunks[0], opts, speaker, endpoint,
+                                   suppress_pre=False, suppress_post=False)
+        wavs = [
+            self._synth_one(
+                chunk, opts, speaker, endpoint,
+                # Drop VOICEVOX's per-chunk edge silence at internal joins so
+                # the only gap between chunks is the configured pause_length.
+                suppress_pre=(i > 0),
+                suppress_post=(i < len(chunks) - 1),
+            )
+            for i, chunk in enumerate(chunks)
+        ]
+        return concat_wavs(wavs, split_pause_length)
+
+    @staticmethod
+    def _split(text: str, marker: str | None) -> list[str]:
+        if not marker or marker not in text:
+            return [text]
+        return [p for p in text.split(marker) if p.strip()] or [text]
+
+    def _synth_one(
+        self,
+        text: str,
+        opts: dict[str, Any],
+        speaker: int,
+        endpoint: str,
+        *,
+        suppress_pre: bool,
+        suppress_post: bool,
+    ) -> bytes:
+        import requests
+        import requests.exceptions as rex
+
         try:
             q = requests.post(
                 f"{endpoint}/audio_query",
@@ -57,6 +100,11 @@ class VoicevoxProvider:
             query["speedScale"] = float(opts.get("speed", 1.0))
             query["pitchScale"] = float(opts.get("pitch", 0.0))
             query["intonationScale"] = float(opts.get("intonation", 1.0))
+            query["volumeScale"] = float(opts.get("volume", 1.0))
+            if suppress_pre:
+                query["prePhonemeLength"] = 0.0
+            if suppress_post:
+                query["postPhonemeLength"] = 0.0
 
             s = requests.post(
                 f"{endpoint}/synthesis",

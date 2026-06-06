@@ -112,6 +112,25 @@ class Preset:
             regex_rules=regex_rules,
         )
 
+    def with_defaults(self, voice_defaults: dict[str, Any]) -> Preset:
+        """Return a copy whose `options` are merged onto `voice_defaults`.
+
+        Keys present (and non-None) on `self.options` override the global
+        default; absent keys inherit. Used at synthesis time so the cache
+        fingerprint and the provider see the same resolved bag.
+        """
+        merged: dict[str, Any] = dict(voice_defaults)
+        for k, v in self.options.items():
+            if v is not None:
+                merged[k] = v
+        return Preset(
+            name=self.name,
+            provider=self.provider,
+            options=merged,
+            cleanup=self.cleanup,
+            regex_rules=self.regex_rules,
+        )
+
     def fingerprint(self) -> str:
         """Stable hash of `provider` + `options`; drives cache keys.
 

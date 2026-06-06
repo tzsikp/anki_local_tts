@@ -289,12 +289,15 @@ class SettingsDialog(QDialog):
                     break
 
     def _open_editor(self, preset: Preset, *, is_new: bool = False) -> bool:
-        # Snapshot the draft provider settings from the Providers tab so
-        # the editor's voice picker / test honour unsaved edits.
+        # Snapshot the draft provider settings + voice defaults from the
+        # sibling tabs so the editor's voice picker / test / inherit hints
+        # honour unsaved edits.
         drafted = self._collect_provider_settings() if self._provider_widgets \
             else dict(self._cfg.provider_settings)
+        voice_defaults = self._rules.collect_voice_defaults()
         dlg = PresetEditorDialog(self._addon, preset, self, is_new=is_new,
-                                 provider_settings=drafted)
+                                 provider_settings=drafted,
+                                 voice_defaults=voice_defaults)
         return dlg.exec() == QDialog.DialogCode.Accepted
 
     def _unique_name(self, base: str) -> str:
@@ -309,7 +312,13 @@ class SettingsDialog(QDialog):
     # ---------------- Rules ----------------
 
     def _build_rules_tab(self) -> QWidget:
-        self._rules = _RulesTab(self._cfg.cleanup, self._cfg.regex_rules)
+        self._rules = _RulesTab(
+            self._cfg.cleanup,
+            self._cfg.regex_rules,
+            split_marker=self._cfg.split_marker,
+            split_pause_length=self._cfg.split_pause_length,
+            voice_defaults=self._cfg.voice_defaults,
+        )
         return self._rules
 
     # ---------------- Routing ----------------
@@ -383,6 +392,8 @@ class SettingsDialog(QDialog):
         self._cfg.provider_settings = self._collect_provider_settings()
         self._cfg.cleanup = self._rules.collect_cleanup()
         self._cfg.regex_rules = self._rules.collect_rules()
+        self._cfg.split_marker, self._cfg.split_pause_length = self._rules.collect_split()
+        self._cfg.voice_defaults = self._rules.collect_voice_defaults()
         self._cfg.routing.by_deck = self._routing_deck.to_dict()
         self._cfg.routing.by_notetype = self._routing_notetype.to_dict()
         self._cfg.routing.by_language = self._routing_lang.to_dict()
@@ -438,6 +449,25 @@ def _read_schema_widget(widget: QWidget):
     return None
 
 
+_VOICE_DEFAULT_PARAMS: list[tuple[str, float, float, float, float, str]] = [
+    ("speed", 0.5, 2.0, 0.05, 1.0,
+     "How fast the voice speaks. 1.0 is the natural pace; lower values "
+     "slow speech down, higher values speed it up. Recommended: 0.9–1.2."),
+    ("pitch", -0.15, 0.15, 0.01, 0.0,
+     "Pitch offset from the voice's natural pitch. 0.0 keeps it as "
+     "recorded; negative lowers, positive raises. VOICEVOX is sensitive "
+     "here — stay within roughly ±0.1."),
+    ("intonation", 0.0, 2.0, 0.05, 1.0,
+     "How much the pitch moves while speaking. 1.0 is natural "
+     "expressiveness; 0.0 sounds monotone/robotic; values above 1 "
+     "exaggerate. Recommended: 0.8–1.3."),
+    ("volume", 0.0, 4.0, 0.05, 1.0,
+     "Output volume multiplier. 1.0 is the engine default; 1.5–2.0 is "
+     "audibly louder; values above ~2.0 start to clip and distort. "
+     "Recommended: 1.0–2.0."),
+]
+
+
 _RUBY_MODES = [("base", "Base character (本)"), ("reading", "Reading (ほん)")]
 _BRACKET_MODES = [
     ("base", "Base before bracket (日々)"),
@@ -452,7 +482,15 @@ class _RulesTab(QWidget):
     and the provider call.
     """
 
-    def __init__(self, cleanup: CleanupOptions, rules: list[RegexRule]) -> None:
+    def __init__(
+        self,
+        cleanup: CleanupOptions,
+        rules: list[RegexRule],
+        *,
+        split_marker: str,
+        split_pause_length: float,
+        voice_defaults: dict,
+    ) -> None:
         super().__init__()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
@@ -460,11 +498,14 @@ class _RulesTab(QWidget):
 
         outer.addWidget(_section_label(
             "Applied to every preset. Cleanup runs first, then regex rules in order. "
-            "Editing these does not invalidate cached audio for unaffected text."
+            "Pause splitting runs at synthesis time on the post-regex text. Editing "
+            "these does not invalidate cached audio for unaffected text."
         ))
 
         outer.addWidget(self._build_cleanup_box(cleanup))
         outer.addWidget(self._build_regex_box(rules), 1)
+        outer.addWidget(self._build_split_box(split_marker, split_pause_length))
+        outer.addWidget(self._build_voice_defaults_box(voice_defaults))
 
     def _build_cleanup_box(self, cleanup: CleanupOptions) -> QGroupBox:
         box = QGroupBox("Cleanup")
@@ -569,6 +610,84 @@ class _RulesTab(QWidget):
         lines = [f"Row {row}: {pat!r} — {err}" for row, pat, err in broken]
         self._status.setText("\n".join(lines))
         self._status.setStyleSheet("color: #c62828;")
+
+    def _build_split_box(self, marker: str, pause_length: float) -> QGroupBox:
+        box = QGroupBox("Split marker — insert this in cards to force a tight pause")
+        form = QFormLayout(box)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(6)
+
+        self._split_marker = QLineEdit(marker)
+        self._split_marker.setPlaceholderText("e.g. ・ — leave empty to disable")
+        self._split_marker.setMaxLength(4)
+        form.addRow("Marker character", self._split_marker)
+
+        self._split_pause = QDoubleSpinBox()
+        self._split_pause.setDecimals(3)
+        self._split_pause.setSingleStep(0.01)
+        self._split_pause.setRange(0.0, 2.0)
+        self._split_pause.setSuffix(" s")
+        self._split_pause.setValue(float(pause_length))
+        form.addRow("Pause length", self._split_pause)
+
+        hint = QLabel(
+            "VOICEVOX renders the marker as a chunk boundary with no engine "
+            "silence, then inserts exactly the pause length above. `、` pauses "
+            "inside a chunk keep the engine default."
+        )
+        hint.setStyleSheet("color: gray;")
+        hint.setWordWrap(True)
+        form.addRow(hint)
+        return box
+
+    def collect_split(self) -> tuple[str, float]:
+        return self._split_marker.text(), float(self._split_pause.value())
+
+    def _build_voice_defaults_box(self, defaults: dict) -> QGroupBox:
+        box = QGroupBox(
+            "Voice defaults — global baseline; presets may override per option"
+        )
+        outer = QVBoxLayout(box)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(10)
+
+        self._voice_default_widgets: dict[str, QDoubleSpinBox] = {}
+        for key, low, high, step, default, description in _VOICE_DEFAULT_PARAMS:
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            name = QLabel(key)
+            name.setMinimumWidth(80)
+            name.setStyleSheet("font-weight: 600;")
+            spin = QDoubleSpinBox()
+            spin.setDecimals(2)
+            spin.setSingleStep(step)
+            spin.setRange(low, high)
+            spin.setValue(float(defaults.get(key, default)))
+            spin.setToolTip(description)
+            self._voice_default_widgets[key] = spin
+            row.addWidget(name)
+            row.addWidget(spin)
+            row.addStretch(1)
+            outer.addLayout(row)
+
+            desc = QLabel(description)
+            desc.setStyleSheet("color: gray;")
+            desc.setWordWrap(True)
+            desc.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+            outer.addWidget(desc)
+
+        footer = QLabel(
+            "Changing a value here invalidates cached audio for any preset "
+            "that inherits it. Presets that override the value are unaffected."
+        )
+        footer.setStyleSheet("color: gray; font-style: italic;")
+        footer.setWordWrap(True)
+        footer.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        outer.addWidget(footer)
+        return box
+
+    def collect_voice_defaults(self) -> dict:
+        return {key: float(w.value()) for key, w in self._voice_default_widgets.items()}
 
     def collect_cleanup(self) -> CleanupOptions:
         brackets = [b.strip() for b in self._brackets.text().split(",") if b.strip()]
