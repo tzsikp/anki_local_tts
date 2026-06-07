@@ -73,6 +73,41 @@ Cloud TTS handles Japanese poorly, and the good engines (ElevenLabs, OpenAI, Azu
 4. In your card template, add `{{tts ja_JP voices=LocalTTS:Expression}}` (replace `Expression` with the actual field name holding Japanese text).
 5. Review a card — cache miss ~1–2s, cache hit instant.
 
+## Settings guide
+
+All settings live under **Tools → Local TTS settings…**. Save applies on next playback — no restart.
+
+**General**
+- *Enable Local TTS* — master switch.
+- *Default preset* — used when no per-deck / per-notetype / per-language rule matches.
+- *ffmpeg path* — leave blank to auto-detect on PATH and common install locations. Without ffmpeg the cache falls back to WAV (~12× larger).
+- *Cache size limit* — disk budget for synthesized audio; LRU-evicted when full.
+- *Clear cache now* — delete every cached file.
+
+**Providers**
+- VOICEVOX endpoint, shared across every preset that uses VOICEVOX. Change once when you move the server.
+
+**Presets**
+A preset is provider + voice ID + per-voice options.
+- *Pick voice from server…* (new-preset only) — live-queries VOICEVOX with a built-in test play.
+- Speed / pitch / intonation / volume — each has a "Use global" checkbox; tick off to pin a preset-specific value, leave on to inherit from Voice defaults.
+- Optional checkboxes to override the global cleanup or regex rules with a per-preset block.
+
+**Rules** (global, every preset inherits unless overridden)
+- *Cleanup* — ruby mode (base / reading), bracket-reading mode (base / reading / keep both), bracket pairs, and a toggle for collapsing furigana-add-on space artifacts. Always-on: HTML strip, Anki cloze braces, whitespace normalize.
+- *Regex rules* — ordered pattern → replacement substitutions applied after cleanup. Validate button compiles every pattern and reports errors. Broken patterns are skipped at runtime, never crash playback.
+- *Split marker* — insert this character (default `・`) in card text where you want a short pause instead of VOICEVOX's default ~0.15s comma pause. Pause length is configurable (0 = no audible gap). VOICEVOX renders digits on either side as separate numbers (e.g. `三・四倍` reads "san, yon-bai", not "sanjuuyon-bai") and prosody flows continuously across the join. Optional *Auto-mark digit-、-digit pauses* checkbox rewrites every `、` between two digits (half-width / full-width / CJK) to the marker, so you don't have to type it in cards. Commas in non-digit contexts (`三月、四月`, `日本、英語`) are untouched.
+- *Voice defaults* — global baseline for speed / pitch / intonation / volume. Each preset inherits unless it pins its own value.
+
+**Routing**
+Decides which preset plays when a TTS tag fires. First match wins:
+1. By deck → preset
+2. By note type → preset
+3. By language → preset (uses the language root, e.g. `ja` for `ja_JP`)
+4. Default preset (set under General)
+
+A quick switcher at **Tools → Local TTS · Routes** lets you change the default / per-language / per-deck preset without opening Settings.
+
 ## Current state
 **Only VOICEVOX is wired up so far.** The architecture is provider-agnostic (Piper / Style-Bert-VITS2 / generic HTTP designed to slot in), but nothing else is implemented yet. Heavily vibe-coded.
 
