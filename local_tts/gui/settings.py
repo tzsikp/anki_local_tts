@@ -329,13 +329,20 @@ class SettingsDialog(QDialog):
     # ---------------- Rules ----------------
 
     def _build_rules_tab(self) -> QWidget:
+        # `getattr` fallbacks defend against a half-reloaded addon
+        # (Anki upgraded the GUI module while keeping a stale Config
+        # class from before these fields existed). With the fallbacks
+        # the dialog still opens; the user just won't see the new
+        # values until Anki is fully restarted.
         self._rules = _RulesTab(
-            self._cfg.cleanup,
-            self._cfg.regex_rules,
-            split_marker=self._cfg.split_marker,
-            split_pause_length=self._cfg.split_pause_length,
-            split_digits_auto=self._cfg.split_digits_auto,
-            voice_defaults=self._cfg.voice_defaults,
+            getattr(self._cfg, "cleanup", CleanupOptions()),
+            getattr(self._cfg, "regex_rules", []),
+            split_marker=getattr(self._cfg, "split_marker", "・"),
+            split_pause_length=getattr(self._cfg, "split_pause_length", 0.03),
+            split_digits_auto=getattr(self._cfg, "split_digits_auto", False),
+            voice_defaults=getattr(self._cfg, "voice_defaults",
+                                    {"speed": 1.0, "pitch": 0.0,
+                                     "intonation": 1.0, "volume": 1.0}),
         )
         return self._rules
 

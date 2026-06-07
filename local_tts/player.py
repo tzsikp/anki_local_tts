@@ -89,8 +89,8 @@ class LocalTTSPlayer(TTSProcessPlayer):
         # opt-in override with zero rows is indistinguishable from inherit.
         rules = preset.regex_rules if preset.regex_rules else cfg.regex_rules
         processed = regex_rules.apply(cleanup.clean(text, cleanup_opts), rules)
-        if cfg.split_digits_auto:
-            processed = auto_marker.auto_mark_digit_pauses(processed, cfg.split_marker)
+        if getattr(cfg, "split_digits_auto", False):
+            processed = auto_marker.auto_mark_digit_pauses(processed, getattr(cfg, "split_marker", ""))
         if not processed.strip():
             log.debug("text empty after cleanup, skipping")
             return
@@ -102,11 +102,17 @@ class LocalTTSPlayer(TTSProcessPlayer):
         # when the marker is present (even at length 0) — folding the two
         # chunks into one synth call would let VOICEVOX read e.g.
         # `三・四倍` as `三十四倍` because `三四` parses as one number.
-        marker = cfg.split_marker if cfg.split_marker and cfg.split_marker in processed else None
-        extra = f"split={marker}|{cfg.split_pause_length}" if marker else ""
+        #
+        # `getattr` fallbacks defend against a half-reloaded addon where
+        # a stale `Config` class from an older version is still in memory
+        # and the runtime code references fields it doesn't have.
+        split_marker = getattr(cfg, "split_marker", "")
+        split_pause_length = getattr(cfg, "split_pause_length", 0.03)
+        marker = split_marker if split_marker and split_marker in processed else None
+        extra = f"split={marker}|{split_pause_length}" if marker else ""
         # Resolve inherit-from-global keys (volume, speed, pitch, ...) so the
         # cache key and the provider both see the effective bag.
-        effective = preset.with_defaults(cfg.voice_defaults)
+        effective = preset.with_defaults(getattr(cfg, "voice_defaults", {}))
         key = self._addon.cache.key(effective, processed, extra=extra)
         cached = self._addon.cache.get(key)
         if cached is None:
