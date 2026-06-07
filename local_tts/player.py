@@ -32,7 +32,7 @@ except ImportError:
 
 from ._log import log
 from .providers.base import ProviderError
-from .text import cleanup, regex_rules
+from .text import auto_marker, cleanup, regex_rules
 
 if TYPE_CHECKING:
     from .addon import LocalTTSAddon
@@ -89,6 +89,8 @@ class LocalTTSPlayer(TTSProcessPlayer):
         # opt-in override with zero rows is indistinguishable from inherit.
         rules = preset.regex_rules if preset.regex_rules else cfg.regex_rules
         processed = regex_rules.apply(cleanup.clean(text, cleanup_opts), rules)
+        if cfg.split_digits_auto:
+            processed = auto_marker.auto_mark_digit_pauses(processed, cfg.split_marker)
         if not processed.strip():
             log.debug("text empty after cleanup, skipping")
             return
@@ -96,7 +98,10 @@ class LocalTTSPlayer(TTSProcessPlayer):
 
         # Marker-based chunking only affects audio when the marker is
         # actually in the text — for unrelated cards the cache key, and
-        # therefore any pre-existing audio, is unchanged.
+        # therefore any pre-existing audio, is unchanged. We always chunk
+        # when the marker is present (even at length 0) — folding the two
+        # chunks into one synth call would let VOICEVOX read e.g.
+        # `三・四倍` as `三十四倍` because `三四` parses as one number.
         marker = cfg.split_marker if cfg.split_marker and cfg.split_marker in processed else None
         extra = f"split={marker}|{cfg.split_pause_length}" if marker else ""
         # Resolve inherit-from-global keys (volume, speed, pitch, ...) so the

@@ -98,7 +98,7 @@ Produces `dist/local_tts.ankiaddon` — double-click to install in Anki.
 3. **Tools → Local TTS settings…**
    - *Providers* tab: confirm or change the VOICEVOX endpoint.
    - *Presets* tab: the bundled "Japanese VOICEVOX 春日部つむぎ · ノーマル" preset is ready. Click New to add more; the editor's "Pick voice from server…" button (only on new presets) fetches the live speaker list from VOICEVOX with a built-in test-play. Each preset may optionally override the global cleanup / regex rules.
-   - *Rules* tab: global cleanup pipeline flags and ordered regex rules. Applied to every preset that doesn't have an explicit override.
+   - *Rules* tab: global text cleanup, regex substitutions, split marker for tight pauses, and voice defaults inherited by every preset. See the [Settings guide](#settings-guide) for details.
    - *Routing* tab: which preset plays for which deck / note type / language.
 4. **Card template** — add to any field you want spoken. Edit your note type's card template (Browse → Cards…) and insert, for example:
    ```
@@ -111,43 +111,89 @@ A quick switcher is available at **Tools → Local TTS · Routes** for changing 
 
 ---
 
-## Configuration
+## Settings guide
 
-Three levels:
+Everything lives under **Tools → Local TTS settings…**. Save applies the changes on the next playback — no restart.
 
-| Scope | Lives in | Example | Edited via |
-|---|---|---|---|
-| **Provider settings** | `provider_settings[name]` | VOICEVOX `endpoint` | Settings → Providers |
-| **Preset** (voice config) | `presets[*]` | speaker_id, speed, pitch, optional cleanup/regex overrides | Settings → Presets |
-| **Global rules** | `cleanup` + `regex_rules` | ruby/bracket mode, vocabulary regex fixes | Settings → Rules |
-| **Routing** | `routing.{by_deck,by_notetype,by_language}` | "deck 12345 → preset X" | Settings → Routing |
+### General
 
-Provider settings are **shared across all presets of that provider**. Moving your VOICEVOX server only requires updating the endpoint once.
+- **Enable Local TTS** — master switch. Off leaves the addon installed but inert.
+- **Default preset** — used when no per-deck / per-notetype / per-language rule matches.
+- **ffmpeg path** — leave blank to auto-detect on `PATH` and common install locations (Homebrew, `/usr/local/bin`, `/usr/bin`). Set explicitly if you have multiple installs. Without ffmpeg the cache falls back to WAV (~12× larger but still works).
+- **Cache size limit** — total disk budget for synthesized audio under `<addon-folder>/user_files/cache/`. LRU-evicted by file access time when full.
+- **Clear cache now** — delete every cached file. Next playback will re-synthesize on demand.
 
-### Cleanup pipeline
+### Providers
 
-Fixed-order, applied before user regex rules:
+Provider-level settings, **shared across every preset** that uses that provider. Edit once when you move the server; presets don't need editing.
 
-1. Ruby tags — `<ruby>本<rt>ほん</rt></ruby>` → base or reading
-2. Strip HTML
-3. Bracket readings — `日々[ひび]` → base or reading
-4. Anki cloze braces — `{{c1::日本語}}` → `日本語`
-5. Whitespace normalize
-6. Collapse spaces between Japanese characters (artifacts from furigana add-ons; only collapses where both neighbours are JP)
+- **VOICEVOX → endpoint** — `http://localhost:50021` by default. Change if you run VOICEVOX on a different host/port (e.g. `http://macmini.local:50021` for a LAN server).
 
-Each step is a pure function. Flags live globally on `config.cleanup`; individual presets may override via the "Override global cleanup" checkbox in the preset editor.
+### Presets
 
-### Regex rules
+A preset is a voice configuration — provider + voice ID + per-voice options (speed, pitch, …). Add, edit, duplicate, or delete presets here. Each preset has:
 
-Global, ordered, applied after the cleanup pipeline. Use them for vocabulary fixes a model gets wrong (e.g. `20日` → `はつか`). Edited under Settings → Rules. A preset may replace the global list with its own via the "Override global regex rules" checkbox in the preset editor.
+- **Name** — what shows up in the routing table.
+- **Provider** — which engine to use. Currently only VOICEVOX.
+- **Pick voice from server…** (new-preset only) — live-queries VOICEVOX for the speaker list with a built-in test-play button.
+- **Speaker / speed / pitch / intonation / volume** — voice parameters. By default these inherit from **Voice defaults** under the Rules tab; tick the "Use global" checkbox off if you want this preset to pin its own value.
+- **Override global cleanup / regex rules** — opt-in checkboxes. Off (default) means the preset inherits the global Rules. On replaces the global list with the preset's own block.
 
-The Validate button on either table compiles every pattern and reports failures inline.
+### Rules
 
-Validation also runs at config load — broken patterns produce a one-time warning popup, and the runtime skips broken rules instead of crashing.
+Global text and prosody settings. Apply to every preset that doesn't explicitly override them.
 
-### Split marker (VOICEVOX)
+#### Cleanup
 
-VOICEVOX inserts an ~0.15s pause at every `、`, which is too long when the comma separates list items rather than clauses (`年に一、二回`). Put a `・` (configurable) at the spot in your card text where you want a tight pause: the adapter splits on the marker, synthesizes each chunk separately, and concatenates with exactly the configured silence (default 0.03s; set 0 to remove). `、` and `。` inside each chunk keep the engine default — only the marker positions get the short pause. Cards that don't contain the marker are unaffected and their cached audio stays valid.
+Fixed-order pipeline applied before regex rules. Configurable:
+
+- **Ruby tags** (`<ruby>本<rt>ほん</rt></ruby>`) → keep the base character (`本`) or the reading (`ほん`).
+- **Bracket readings** (`日々[ひび]`) → keep the base, the reading, or both.
+- **Bracket pairs** — which bracket characters get the bracket-reading treatment. Defaults: `[]`, `()`.
+- **Collapse spaces between Japanese characters** — removes furigana-add-on artifacts like `日本　に` → `日本に`. Only collapses where both neighbours are Japanese.
+
+Always-on cleanup (not configurable): HTML strip, Anki cloze braces (`{{c1::X}}` → `X`), whitespace normalize.
+
+#### Regex rules
+
+Ordered list of `pattern → replacement` substitutions applied after cleanup. Use them for vocabulary fixes the engine gets wrong:
+
+- `20日` → `はつか`
+- `背負ってくる` → `しょってくる`
+
+Per row: **On** (enable), **Pattern** (Python regex), **Replacement** (literal or backreferences). The **Validate** button compiles every pattern and reports failures inline. Validation also runs at config load — broken patterns produce a one-time popup and are skipped at runtime, never crashing playback.
+
+#### Split marker (VOICEVOX)
+
+Insert the marker character in card text where you want a short pause instead of VOICEVOX's default ~0.15s comma pause. The engine still pronounces neighbouring digits separately (`三・四倍` → "san, yon-bai", not "sanjuuyon-bai") and prosody flows continuously across the join.
+
+- **Marker character** — what to look for in card text. Default `・`. Leave empty to disable entirely.
+- **Pause length** — gap inserted at marker positions. Default `0.03 s`. Set `0` for no audible gap.
+- **Auto-mark digit-、-digit pauses** — when on, any `、` sitting between two digits is rewritten to the marker before synthesis, so you don't have to type the marker in cards. Covers half-width (`2023、2024`), full-width (`１、２`), and CJK digits (`三、四`, `十三、四`, `三十、四十`). Commas in non-digit contexts (`三月、四月`, `日本、英語`) are untouched. Off by default.
+
+#### Voice defaults
+
+Global baseline for the per-voice numeric parameters. Each preset's editor shows an "Use global (X)" checkbox per parameter — checked = inherit, unchecked = preset pins its own value.
+
+- **speed** — 1.0 is natural pace. <1 slower, >1 faster. Recommended 0.9–1.2.
+- **pitch** — offset from the speaker's natural pitch. 0.0 = unchanged. VOICEVOX is sensitive here — stay within roughly ±0.1.
+- **intonation** — how much the pitch moves while speaking. 1.0 normal, 0.0 monotone/robotic, >1 exaggerated. Recommended 0.8–1.3.
+- **volume** — output multiplier. 1.0 default, 1.5–2.0 audibly louder, above ~2.0 starts clipping.
+
+Changing a global value here re-synthesizes any preset that inherits it on next play. Presets that override the value are unaffected.
+
+### Routing
+
+Decides which preset plays when a TTS tag fires. Resolution order, first match wins:
+
+1. **By deck** — `deck → preset`. Most specific.
+2. **By note type** — `notetype → preset`.
+3. **By language** — `ja → preset`, `en → preset`, … Use the `ja_JP` / `en_US` style in your card template's TTS tag; the language root (`ja`) is what matches here.
+4. **Default preset** — set under the General tab.
+
+`Tools → Local TTS · Routes` gives a one-click submenu to switch the default / per-language / per-deck preset without opening Settings.
+
+---
 
 ### Cache
 

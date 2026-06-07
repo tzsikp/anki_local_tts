@@ -123,6 +123,37 @@ def test_cache_key_unchanged_for_non_matching_text():
     assert AudioCache.key(p, "こんにちは") == AudioCache.key(p, "こんにちは", extra="")
 
 
+def test_zero_pause_still_chunks_to_preserve_digit_boundaries():
+    """At length=0 we still chunk so /accent_phrases parses each side
+    independently. Folding into one /audio_query would let VOICEVOX read
+    `三・四倍` as `三十四倍` (thirty-four times), losing the user's intent.
+    The merged-prosody path (per-chunk /accent_phrases → /mora_data →
+    /synthesis) gives a zero-gap join *and* correct number parsing."""
+    assert VoicevoxProvider._split("三・四倍", "・") == ["三", "四倍"]
+
+
+def test_pause_mora_shape_matches_engine_format():
+    from local_tts.providers.voicevox import _pause_mora
+
+    m = _pause_mora(0.03)
+    assert m["vowel"] == "pau"
+    assert m["vowel_length"] == 0.03
+    assert m["consonant"] is None
+    assert m["text"] == "、"
+
+
+def test_audio_query_base_has_required_synthesis_fields():
+    """`_synth_merged` builds the query from `_AUDIO_QUERY_BASE` + scales +
+    accent_phrases. /synthesis rejects an AudioQuery missing any of the
+    output/phoneme/pause fields, so this defends against accidentally
+    dropping one."""
+    from local_tts.providers.voicevox import _AUDIO_QUERY_BASE
+
+    required = {"outputSamplingRate", "outputStereo", "prePhonemeLength",
+                "postPhonemeLength", "pauseLengthScale"}
+    assert required.issubset(_AUDIO_QUERY_BASE.keys())
+
+
 def test_cache_key_differs_when_split_extra_present():
     from local_tts.cache import AudioCache
     from local_tts.presets import Preset

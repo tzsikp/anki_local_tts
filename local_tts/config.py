@@ -37,6 +37,7 @@ class Config:
     regex_rules: list[RegexRule] = field(default_factory=list)
     split_marker: str = "・"
     split_pause_length: float = 0.03
+    split_digits_auto: bool = False
     # Cross-provider voice param defaults. A preset's `options` may omit
     # any of these keys to inherit the global value; explicit values on
     # the preset override. Speaker-identifying keys (`speaker_id`) are
@@ -97,6 +98,7 @@ class Config:
             regex_rules=regex_rules,
             split_marker=raw.get("split_marker", "・"),
             split_pause_length=float(raw.get("split_pause_length", 0.03)),
+            split_digits_auto=bool(raw.get("split_digits_auto", False)),
             voice_defaults=dict(raw.get("voice_defaults") or {
                 "speed": 1.0, "pitch": 0.0, "intonation": 1.0, "volume": 1.0
             }),
@@ -124,6 +126,7 @@ class Config:
             "regex_rules": [r.to_dict() for r in self.regex_rules],
             "split_marker": self.split_marker,
             "split_pause_length": self.split_pause_length,
+            "split_digits_auto": self.split_digits_auto,
             "voice_defaults": dict(self.voice_defaults),
             "provider_settings": {k: dict(v) for k, v in self.provider_settings.items()},
             "cache": {"dir": str(self.cache_dir), "max_mb": self.cache_max_mb},

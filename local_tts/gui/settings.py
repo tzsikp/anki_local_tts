@@ -19,6 +19,7 @@ from aqt.qt import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -28,6 +29,7 @@ from aqt.qt import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QTabWidget,
@@ -56,16 +58,15 @@ class SettingsDialog(QDialog):
     def __init__(self, addon: LocalTTSAddon, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Local TTS")
-        self.resize(720, 560)
         self._addon = addon
         self._cfg = copy.deepcopy(addon.config)
 
         tabs = QTabWidget(self)
-        tabs.addTab(self._build_general_tab(), "General")
-        tabs.addTab(self._build_providers_tab(), "Providers")
-        tabs.addTab(self._build_presets_tab(), "Presets")
-        tabs.addTab(self._build_rules_tab(), "Rules")
-        tabs.addTab(self._build_routing_tab(), "Routing")
+        tabs.addTab(_scroll(self._build_general_tab()), "General")
+        tabs.addTab(_scroll(self._build_providers_tab()), "Providers")
+        tabs.addTab(_scroll(self._build_presets_tab()), "Presets")
+        tabs.addTab(_scroll(self._build_rules_tab()), "Rules")
+        tabs.addTab(_scroll(self._build_routing_tab()), "Routing")
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -78,6 +79,22 @@ class SettingsDialog(QDialog):
         layout.setSpacing(12)
         layout.addWidget(tabs)
         layout.addWidget(buttons)
+
+        # Fit-to-screen: cap at 80% of available height so the dialog can
+        # always be resized smaller, and the per-tab QScrollArea takes care
+        # of the rest. Width gets the same treatment for very narrow screens.
+        self.setMinimumSize(420, 320)
+        self._size_to_screen(preferred=(720, 560))
+
+    def _size_to_screen(self, *, preferred: tuple[int, int]) -> None:
+        screen = self.screen() or (self.parent().screen() if self.parent() else None)
+        if screen is None:
+            self.resize(*preferred)
+            return
+        geo = screen.availableGeometry()
+        w = min(preferred[0], int(geo.width() * 0.95))
+        h = min(preferred[1], int(geo.height() * 0.85))
+        self.resize(w, h)
 
     # ---------------- General ----------------
 
@@ -317,6 +334,7 @@ class SettingsDialog(QDialog):
             self._cfg.regex_rules,
             split_marker=self._cfg.split_marker,
             split_pause_length=self._cfg.split_pause_length,
+            split_digits_auto=self._cfg.split_digits_auto,
             voice_defaults=self._cfg.voice_defaults,
         )
         return self._rules
@@ -392,7 +410,11 @@ class SettingsDialog(QDialog):
         self._cfg.provider_settings = self._collect_provider_settings()
         self._cfg.cleanup = self._rules.collect_cleanup()
         self._cfg.regex_rules = self._rules.collect_rules()
-        self._cfg.split_marker, self._cfg.split_pause_length = self._rules.collect_split()
+        (
+            self._cfg.split_marker,
+            self._cfg.split_pause_length,
+            self._cfg.split_digits_auto,
+        ) = self._rules.collect_split()
         self._cfg.voice_defaults = self._rules.collect_voice_defaults()
         self._cfg.routing.by_deck = self._routing_deck.to_dict()
         self._cfg.routing.by_notetype = self._routing_notetype.to_dict()
@@ -405,6 +427,18 @@ class SettingsDialog(QDialog):
 
         self._addon.apply_config(self._cfg)
         self.accept()
+
+
+def _scroll(content: QWidget) -> QScrollArea:
+    """Wrap a tab body so it scrolls vertically when the dialog is shorter
+    than the content — fixes 'bottom cut off on small displays'."""
+    area = QScrollArea()
+    area.setFrameShape(QFrame.Shape.NoFrame)
+    area.setWidgetResizable(True)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    area.setWidget(content)
+    return area
 
 
 def _section_label(text: str) -> QLabel:
@@ -489,6 +523,7 @@ class _RulesTab(QWidget):
         *,
         split_marker: str,
         split_pause_length: float,
+        split_digits_auto: bool,
         voice_defaults: dict,
     ) -> None:
         super().__init__()
@@ -497,14 +532,13 @@ class _RulesTab(QWidget):
         outer.setSpacing(14)
 
         outer.addWidget(_section_label(
-            "Applied to every preset. Cleanup runs first, then regex rules in order. "
-            "Pause splitting runs at synthesis time on the post-regex text. Editing "
-            "these does not invalidate cached audio for unaffected text."
+            "These settings apply to every preset. Changing them only "
+            "affects cards whose audio actually depends on the change."
         ))
 
         outer.addWidget(self._build_cleanup_box(cleanup))
         outer.addWidget(self._build_regex_box(rules), 1)
-        outer.addWidget(self._build_split_box(split_marker, split_pause_length))
+        outer.addWidget(self._build_split_box(split_marker, split_pause_length, split_digits_auto))
         outer.addWidget(self._build_voice_defaults_box(voice_defaults))
 
     def _build_cleanup_box(self, cleanup: CleanupOptions) -> QGroupBox:
@@ -611,7 +645,7 @@ class _RulesTab(QWidget):
         self._status.setText("\n".join(lines))
         self._status.setStyleSheet("color: #c62828;")
 
-    def _build_split_box(self, marker: str, pause_length: float) -> QGroupBox:
+    def _build_split_box(self, marker: str, pause_length: float, digits_auto: bool) -> QGroupBox:
         box = QGroupBox("Split marker — insert this in cards to force a tight pause")
         form = QFormLayout(box)
         form.setHorizontalSpacing(16)
@@ -630,18 +664,32 @@ class _RulesTab(QWidget):
         self._split_pause.setValue(float(pause_length))
         form.addRow("Pause length", self._split_pause)
 
+        self._split_digits_auto = QCheckBox("Auto-mark digit-、-digit pauses")
+        self._split_digits_auto.setChecked(bool(digits_auto))
+        form.addRow("", self._split_digits_auto)
+
         hint = QLabel(
-            "VOICEVOX renders the marker as a chunk boundary with no engine "
-            "silence, then inserts exactly the pause length above. `、` pauses "
-            "inside a chunk keep the engine default."
+            "Insert the marker character in a card where you want a short "
+            "pause instead of the engine's default. Natural commas (、) and "
+            "periods (。) elsewhere keep their normal pauses. Set pause "
+            "length to 0 for no audible gap.\n\n"
+            "Auto-mark does this for you when a comma sits between two "
+            "numbers (e.g. 三、四倍, 年に一、二回, 2023、2024) so you don't "
+            "have to type the marker in cards. Commas in other contexts "
+            "are left alone."
         )
         hint.setStyleSheet("color: gray;")
         hint.setWordWrap(True)
+        hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         form.addRow(hint)
         return box
 
-    def collect_split(self) -> tuple[str, float]:
-        return self._split_marker.text(), float(self._split_pause.value())
+    def collect_split(self) -> tuple[str, float, bool]:
+        return (
+            self._split_marker.text(),
+            float(self._split_pause.value()),
+            bool(self._split_digits_auto.isChecked()),
+        )
 
     def _build_voice_defaults_box(self, defaults: dict) -> QGroupBox:
         box = QGroupBox(
@@ -664,6 +712,7 @@ class _RulesTab(QWidget):
             spin.setRange(low, high)
             spin.setValue(float(defaults.get(key, default)))
             spin.setToolTip(description)
+            spin.setMinimumWidth(140)
             self._voice_default_widgets[key] = spin
             row.addWidget(name)
             row.addWidget(spin)
@@ -677,8 +726,8 @@ class _RulesTab(QWidget):
             outer.addWidget(desc)
 
         footer = QLabel(
-            "Changing a value here invalidates cached audio for any preset "
-            "that inherits it. Presets that override the value are unaffected."
+            "These values apply to every preset unless the preset sets its "
+            "own value for that option."
         )
         footer.setStyleSheet("color: gray; font-style: italic;")
         footer.setWordWrap(True)
