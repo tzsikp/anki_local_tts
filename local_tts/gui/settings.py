@@ -340,6 +340,7 @@ class SettingsDialog(QDialog):
             split_marker=getattr(self._cfg, "split_marker", "・"),
             split_pause_length=getattr(self._cfg, "split_pause_length", 0.03),
             split_digits_auto=getattr(self._cfg, "split_digits_auto", False),
+            digits_to_kanji=getattr(self._cfg, "digits_to_kanji", True),
             voice_defaults=getattr(self._cfg, "voice_defaults",
                                     {"speed": 1.0, "pitch": 0.0,
                                      "intonation": 1.0, "volume": 1.0}),
@@ -422,6 +423,7 @@ class SettingsDialog(QDialog):
             self._cfg.split_pause_length,
             self._cfg.split_digits_auto,
         ) = self._rules.collect_split()
+        self._cfg.digits_to_kanji = self._rules.collect_digits_to_kanji()
         self._cfg.voice_defaults = self._rules.collect_voice_defaults()
         self._cfg.routing.by_deck = self._routing_deck.to_dict()
         self._cfg.routing.by_notetype = self._routing_notetype.to_dict()
@@ -531,6 +533,7 @@ class _RulesTab(QWidget):
         split_marker: str,
         split_pause_length: float,
         split_digits_auto: bool,
+        digits_to_kanji: bool,
         voice_defaults: dict,
     ) -> None:
         super().__init__()
@@ -544,6 +547,7 @@ class _RulesTab(QWidget):
         ))
 
         outer.addWidget(self._build_cleanup_box(cleanup))
+        outer.addWidget(self._build_numbers_box(digits_to_kanji))
         outer.addWidget(self._build_regex_box(rules), 1)
         outer.addWidget(self._build_split_box(split_marker, split_pause_length, split_digits_auto))
         outer.addWidget(self._build_voice_defaults_box(voice_defaults))
@@ -574,6 +578,30 @@ class _RulesTab(QWidget):
         self._collapse_cjk.setChecked(cleanup.collapse_cjk_spaces)
         form.addRow("", self._collapse_cjk)
         return box
+
+    def _build_numbers_box(self, digits_to_kanji: bool) -> QGroupBox:
+        box = QGroupBox("Numbers")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+
+        self._digits_to_kanji = QCheckBox("Read numbers as words (1990 → 千九百九十)")
+        self._digits_to_kanji.setChecked(bool(digits_to_kanji))
+        layout.addWidget(self._digits_to_kanji)
+
+        hint = QLabel(
+            "VOICEVOX otherwise reads bare digits one at a time (7月 as "
+            "\"nana-tsuki\" instead of \"shichi-gatsu\"). With this on, "
+            "every run of ASCII or full-width digits is rewritten as its "
+            "kanji form before synthesis."
+        )
+        hint.setStyleSheet("color: gray;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        return box
+
+    def collect_digits_to_kanji(self) -> bool:
+        return bool(self._digits_to_kanji.isChecked())
 
     def _build_regex_box(self, rules: list[RegexRule]) -> QGroupBox:
         box = QGroupBox("Regex rules — applied in order after cleanup")

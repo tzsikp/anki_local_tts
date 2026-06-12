@@ -32,7 +32,7 @@ except ImportError:
 
 from ._log import log
 from .providers.base import ProviderError
-from .text import auto_marker, cleanup, regex_rules
+from .text import auto_marker, cleanup, digit_kanji, regex_rules
 
 if TYPE_CHECKING:
     from .addon import LocalTTSAddon
@@ -89,6 +89,13 @@ class LocalTTSPlayer(TTSProcessPlayer):
         # opt-in override with zero rows is indistinguishable from inherit.
         rules = preset.regex_rules if preset.regex_rules else cfg.regex_rules
         processed = regex_rules.apply(cleanup.clean(text, cleanup_opts), rules)
+        if getattr(cfg, "digits_to_kanji", True):
+            processed = digit_kanji.convert(processed)
+            # New kanji may neighbour a space that survived the initial
+            # cleanup pass (e.g. `7 月` → `七 月`); re-collapse so the
+            # provider sees a single token.
+            if cleanup_opts.collapse_cjk_spaces:
+                processed = cleanup.collapse_cjk_spaces(processed)
         if getattr(cfg, "split_digits_auto", False):
             processed = auto_marker.auto_mark_digit_pauses(processed, getattr(cfg, "split_marker", ""))
         if not processed.strip():
