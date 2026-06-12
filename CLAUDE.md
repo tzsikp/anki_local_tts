@@ -284,6 +284,7 @@ Don't rewrite the README unprompted — surface these as a diff when the user as
 - **Tests:** pure modules (`text/`, `cache.py`, `presets.py`) get unit tests with `pytest`; Anki-integrated modules are smoke-tested manually until we have an Anki test harness.
 - **No emojis in code or UI** unless the user explicitly asks.
 - **No comments explaining what the code does** — only why, when non-obvious.
+- **Docs follow features automatically.** Any user-visible change (new toggle, new setting, new behaviour, renamed control) must update `README.md` *and* `ANKIWEB.md` in the same commit as the code. Do not wait for the user to ask. The Settings guide section in both files is the canonical reference users read — if it doesn't mention a feature, the feature effectively doesn't exist. Internal refactors and pure bug fixes are exempt.
 
 ---
 

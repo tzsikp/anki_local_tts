@@ -154,6 +154,10 @@ Fixed-order pipeline applied before regex rules. Configurable:
 
 Always-on cleanup (not configurable): HTML strip, Anki cloze braces (`{{c1::X}}` → `X`), whitespace normalize.
 
+#### Numbers
+
+- **Read numbers as words** (on by default) — rewrites every run of ASCII or full-width digits to its classical kanji form before synthesis (`1990` → `千九百九十`, `7月` → `七月`, `100円` → `百円`). Without this, VOICEVOX reads bare digits one at a time ("nana tsuki" instead of "shichi-gatsu"). Off → digits are sent through verbatim.
+
 #### Regex rules
 
 Ordered list of `pattern → replacement` substitutions applied after cleanup. Use them for vocabulary fixes the engine gets wrong:

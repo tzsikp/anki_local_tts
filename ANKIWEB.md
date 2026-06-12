@@ -95,6 +95,7 @@ A preset is provider + voice ID + per-voice options.
 
 **Rules** (global, every preset inherits unless overridden)
 - *Cleanup* — ruby mode (base / reading), bracket-reading mode (base / reading / keep both), bracket pairs, and a toggle for collapsing furigana-add-on space artifacts. Always-on: HTML strip, Anki cloze braces, whitespace normalize.
+- *Numbers* — *Read numbers as words* (on by default). Rewrites ASCII / full-width digit runs to classical kanji before synthesis (`1990` → `千九百九十`, `7月` → `七月`), so VOICEVOX reads numbers as numbers instead of digit-by-digit ("nana tsuki" → "shichi-gatsu"). Off → digits are sent verbatim.
 - *Regex rules* — ordered pattern → replacement substitutions applied after cleanup. Validate button compiles every pattern and reports errors. Broken patterns are skipped at runtime, never crash playback.
 - *Split marker* — insert this character (default `・`) in card text where you want a short pause instead of VOICEVOX's default ~0.15s comma pause. Pause length is configurable (0 = no audible gap). VOICEVOX renders digits on either side as separate numbers (e.g. `三・四倍` reads "san, yon-bai", not "sanjuuyon-bai") and prosody flows continuously across the join. Optional *Auto-mark digit-、-digit pauses* checkbox rewrites every `、` between two digits (half-width / full-width / CJK) to the marker, so you don't have to type it in cards. Commas in non-digit contexts (`三月、四月`, `日本、英語`) are untouched.
 - *Voice defaults* — global baseline for speed / pitch / intonation / volume. Each preset inherits unless it pins its own value.
